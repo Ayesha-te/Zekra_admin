@@ -21,6 +21,7 @@ const emptyForm = {
   originalPrice: "",
   tag: "",
   description: "",
+  urlSlug: "",
   metaTitle: "",
   metaDescription: "",
   imageAlt: "",
@@ -28,6 +29,62 @@ const emptyForm = {
 };
 
 type ProductForm = typeof emptyForm;
+type SeoField = "urlSlug" | "metaTitle" | "metaDescription" | "imageAlt";
+type SeoEditState = Record<SeoField, boolean>;
+
+function createSeoEditState(value = false): SeoEditState {
+  return {
+    urlSlug: value,
+    metaTitle: value,
+    metaDescription: value,
+    imageAlt: value,
+  };
+}
+
+function normalizeSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function generateSeoFields(nameValue: string, categoryValue: string): Pick<ProductForm, SeoField> {
+  const name = nameValue.trim();
+  const category = categoryValue.trim();
+  const lowerName = name.toLowerCase();
+  const lowerCategory = category.toLowerCase();
+
+  if (!name) {
+    return {
+      urlSlug: "",
+      metaTitle: "",
+      metaDescription: "",
+      imageAlt: "",
+    };
+  }
+
+  return {
+    urlSlug: normalizeSlug(`${category} ${name}`),
+    metaTitle: `${name} - ${category} | Zekra Sweets`,
+    metaDescription: `Order ${name} from Zekra Sweets. Fresh handmade ${lowerCategory} baked with care in Ajman, UAE.`,
+    imageAlt: lowerName.includes(lowerCategory)
+      ? `${name} from Zekra Sweets`
+      : `${name} ${lowerCategory} from Zekra Sweets`,
+  };
+}
+
+function applyGeneratedSeo(nextForm: ProductForm, editedSeoFields: SeoEditState): ProductForm {
+  const generated = generateSeoFields(nextForm.name, nextForm.category);
+
+  return {
+    ...nextForm,
+    urlSlug: editedSeoFields.urlSlug ? nextForm.urlSlug : generated.urlSlug,
+    metaTitle: editedSeoFields.metaTitle ? nextForm.metaTitle : generated.metaTitle,
+    metaDescription: editedSeoFields.metaDescription ? nextForm.metaDescription : generated.metaDescription,
+    imageAlt: editedSeoFields.imageAlt ? nextForm.imageAlt : generated.imageAlt,
+  };
+}
 
 const emptyLocationForm = {
   name: "",
@@ -42,6 +99,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [deliveryLocations, setDeliveryLocations] = useState<DeliveryLocation[]>([]);
   const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [editedSeoFields, setEditedSeoFields] = useState<SeoEditState>(() => createSeoEditState());
   const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocationForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
@@ -136,7 +194,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
         body: payload,
       });
-      setForm(emptyForm);
+      resetProductForm();
       setEditingId(null);
       setImage(null);
       setMessage("Product saved.");
@@ -166,21 +224,53 @@ export default function App() {
   }
 
   function startEdit(product: Product) {
-    setEditingId(product.id);
-    setForm({
+    const generated = generateSeoFields(product.name, product.category);
+    const nextForm = {
       name: product.name,
       category: product.category,
       price: String(product.price),
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
       tag: product.tag || "",
       description: product.description || "",
+      urlSlug: product.urlSlug || "",
       metaTitle: product.metaTitle || "",
       metaDescription: product.metaDescription || "",
       imageAlt: product.imageAlt || "",
       isActive: product.isActive !== false,
-    });
+    };
+    const nextEditedSeoFields = {
+      urlSlug: Boolean(product.urlSlug && product.urlSlug !== generated.urlSlug),
+      metaTitle: Boolean(product.metaTitle && product.metaTitle !== generated.metaTitle),
+      metaDescription: Boolean(product.metaDescription && product.metaDescription !== generated.metaDescription),
+      imageAlt: Boolean(product.imageAlt && product.imageAlt !== generated.imageAlt),
+    };
+
+    setEditingId(product.id);
+    setEditedSeoFields(nextEditedSeoFields);
+    setForm(applyGeneratedSeo(nextForm, nextEditedSeoFields));
     setImage(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function resetProductForm() {
+    setEditingId(null);
+    setForm(emptyForm);
+    setEditedSeoFields(createSeoEditState());
+    setImage(null);
+  }
+
+  function updateProductIdentity(updates: Partial<Pick<ProductForm, "name" | "category">>) {
+    setForm((currentForm) => applyGeneratedSeo({ ...currentForm, ...updates }, editedSeoFields));
+  }
+
+  function updateSeoField(field: SeoField, value: string) {
+    setEditedSeoFields((currentFields) => ({ ...currentFields, [field]: true }));
+    setForm((currentForm) => ({ ...currentForm, [field]: value }));
+  }
+
+  function regenerateSeoFields() {
+    setForm((currentForm) => ({ ...currentForm, ...generateSeoFields(currentForm.name, currentForm.category) }));
+    setEditedSeoFields(createSeoEditState());
   }
 
   async function saveDeliveryLocation(event: FormEvent) {
@@ -454,19 +544,19 @@ export default function App() {
             <div className="flex items-center justify-between">
               <h2 className="font-display text-2xl">{editingId ? "Edit product" : "Add product"}</h2>
               {editingId && (
-                <button type="button" onClick={() => { setEditingId(null); setForm(emptyForm); setImage(null); }} className="text-sm text-primary">
+                <button type="button" onClick={resetProductForm} className="text-sm text-primary">
                   New product
                 </button>
               )}
             </div>
 
             <label className="mt-5 block text-sm font-medium">Product name</label>
-            <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+            <input required value={form.name} onChange={(e) => updateProductIdentity({ name: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium">Category</label>
-                <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary">
+                <select value={form.category} onChange={(e) => updateProductIdentity({ category: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary">
                   <option>Cookies</option>
                   <option>Sweets</option>
                   <option>Rusk</option>
@@ -494,16 +584,24 @@ export default function App() {
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
 
             <div className="mt-4 rounded-2xl border border-border bg-background/60 p-4">
-              <h3 className="font-display text-xl">SEO and image text</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-display text-xl">SEO and image text</h3>
+                <button type="button" onClick={regenerateSeoFields} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold text-primary hover:bg-secondary">
+                  <RefreshCw className="h-3.5 w-3.5" /> Auto-fill SEO
+                </button>
+              </div>
+
+              <label className="mt-4 block text-sm font-medium">URL slug</label>
+              <input value={form.urlSlug} onChange={(e) => updateSeoField("urlSlug", e.target.value)} placeholder="cookies-premium-almond-cookies" className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
 
               <label className="mt-4 block text-sm font-medium">Meta title</label>
-              <input value={form.metaTitle} onChange={(e) => setForm({ ...form, metaTitle: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+              <input value={form.metaTitle} onChange={(e) => updateSeoField("metaTitle", e.target.value)} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
 
               <label className="mt-4 block text-sm font-medium">Meta description</label>
-              <textarea value={form.metaDescription} onChange={(e) => setForm({ ...form, metaDescription: e.target.value })} rows={2} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+              <textarea value={form.metaDescription} onChange={(e) => updateSeoField("metaDescription", e.target.value)} rows={2} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
 
               <label className="mt-4 block text-sm font-medium">Image alt text</label>
-              <input value={form.imageAlt} onChange={(e) => setForm({ ...form, imageAlt: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+              <input value={form.imageAlt} onChange={(e) => updateSeoField("imageAlt", e.target.value)} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
             </div>
 
             <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
@@ -542,6 +640,11 @@ export default function App() {
                   </div>
                   <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
                   <p className="mt-2 text-sm text-muted-foreground">AED {product.price.toFixed(2)}{product.originalPrice ? ` / old AED ${product.originalPrice.toFixed(2)}` : ""}</p>
+                  {product.urlSlug && (
+                    <p title={`/${product.urlSlug}`} className="mt-1 max-w-full truncate font-mono text-xs text-muted-foreground">
+                      /{product.urlSlug}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
                   <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">

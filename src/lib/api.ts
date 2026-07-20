@@ -6,6 +6,7 @@ export type Product = {
   originalPrice?: number | null;
   tag?: string;
   description?: string;
+  urlSlug?: string;
   metaTitle?: string;
   metaDescription?: string;
   imageAlt?: string;
