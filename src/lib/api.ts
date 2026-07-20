@@ -6,8 +6,18 @@ export type Product = {
   originalPrice?: number | null;
   tag?: string;
   description?: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  imageAlt?: string;
   isActive?: boolean;
   category: "Cookies" | "Sweets" | "Rusk" | "Puff" | string;
+};
+
+export type DeliveryLocation = {
+  id: string;
+  name: string;
+  charge: number;
+  isActive?: boolean;
 };
 
 export const API_BASE = import.meta.env.VITE_API_URL || "https://api.zekrasweets.com";

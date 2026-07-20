@@ -1,6 +1,18 @@
-import { Edit3, Eye, EyeOff, ImagePlus, LogOut, Plus, Save, Trash2 } from "lucide-react";
+import {
+  Edit3,
+  Eye,
+  EyeOff,
+  ImagePlus,
+  Loader2,
+  LogOut,
+  MapPin,
+  Plus,
+  RefreshCw,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiFetch, assetUrl, type Product } from "./lib/api";
+import { apiFetch, assetUrl, type DeliveryLocation, type Product } from "./lib/api";
 
 const emptyForm = {
   name: "",
@@ -9,21 +21,38 @@ const emptyForm = {
   originalPrice: "",
   tag: "",
   description: "",
+  metaTitle: "",
+  metaDescription: "",
+  imageAlt: "",
   isActive: true,
 };
 
 type ProductForm = typeof emptyForm;
 
+const emptyLocationForm = {
+  name: "",
+  charge: "",
+  isActive: true,
+};
+
+type LocationForm = typeof emptyLocationForm;
+
 export default function App() {
   const [token, setToken] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
+  const [deliveryLocations, setDeliveryLocations] = useState<DeliveryLocation[]>([]);
   const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocationForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
   const [image, setImage] = useState<File | null>(null);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [locationsLoading, setLocationsLoading] = useState(false);
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationBusyId, setLocationBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = "Admin - Zekra Sweets";
@@ -37,6 +66,7 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
     loadProducts(token);
+    loadDeliveryLocations(token);
   }, [token]);
 
   useEffect(() => {
@@ -52,6 +82,21 @@ export default function App() {
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load products");
+    }
+  }
+
+  async function loadDeliveryLocations(authToken = token) {
+    setLocationsLoading(true);
+    try {
+      setDeliveryLocations(
+        await apiFetch<DeliveryLocation[]>("/api/admin/delivery-locations", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        }),
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load delivery locations");
+    } finally {
+      setLocationsLoading(false);
     }
   }
 
@@ -129,16 +174,119 @@ export default function App() {
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
       tag: product.tag || "",
       description: product.description || "",
+      metaTitle: product.metaTitle || "",
+      metaDescription: product.metaDescription || "",
+      imageAlt: product.imageAlt || "",
       isActive: product.isActive !== false,
     });
     setImage(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  async function saveDeliveryLocation(event: FormEvent) {
+    event.preventDefault();
+    setLocationBusy(true);
+    setMessage("");
+
+    const charge = Number(locationForm.charge);
+    if (!locationForm.name.trim() || !Number.isFinite(charge) || charge < 0) {
+      setMessage("Add a location name and a valid AED charge.");
+      setLocationBusy(false);
+      return;
+    }
+
+    try {
+      await apiFetch<DeliveryLocation>(
+        editingLocationId
+          ? `/api/admin/delivery-locations/${editingLocationId}`
+          : "/api/admin/delivery-locations",
+        {
+          method: editingLocationId ? "PUT" : "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: locationForm.name.trim(),
+            charge,
+            isActive: locationForm.isActive,
+          }),
+        },
+      );
+      setLocationForm(emptyLocationForm);
+      setEditingLocationId(null);
+      setMessage(editingLocationId ? "Delivery location updated." : "Delivery location added.");
+      await loadDeliveryLocations();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save delivery location");
+    } finally {
+      setLocationBusy(false);
+    }
+  }
+
+  function startEditLocation(location: DeliveryLocation) {
+    setEditingLocationId(location.id);
+    setLocationForm({
+      name: location.name,
+      charge: String(location.charge),
+      isActive: location.isActive !== false,
+    });
+  }
+
+  function resetLocationForm() {
+    setEditingLocationId(null);
+    setLocationForm(emptyLocationForm);
+  }
+
+  async function toggleDeliveryLocation(location: DeliveryLocation) {
+    setLocationBusyId(location.id);
+    setMessage("");
+    try {
+      await apiFetch<DeliveryLocation>(`/api/admin/delivery-locations/${location.id}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: location.name,
+          charge: Number(location.charge),
+          isActive: !(location.isActive !== false),
+        }),
+      });
+      await loadDeliveryLocations();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update delivery location");
+    } finally {
+      setLocationBusyId(null);
+    }
+  }
+
+  async function deleteDeliveryLocation(id: string) {
+    if (!confirm("Delete this delivery location?")) return;
+    setLocationBusyId(id);
+    setMessage("");
+    try {
+      await apiFetch(`/api/admin/delivery-locations/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (editingLocationId === id) resetLocationForm();
+      setMessage("Delivery location deleted.");
+      await loadDeliveryLocations();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not delete delivery location");
+    } finally {
+      setLocationBusyId(null);
+    }
+  }
+
   function logout() {
     localStorage.removeItem("adminToken");
     setToken("");
     setProducts([]);
+    setDeliveryLocations([]);
+    resetLocationForm();
   }
 
   if (!token) {
@@ -166,7 +314,7 @@ export default function App() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <span className="text-xs uppercase tracking-[0.3em] text-caramel">Zekra Sweets</span>
-            <h1 className="mt-2 font-display text-4xl">Product admin</h1>
+            <h1 className="mt-2 font-display text-4xl">Store admin</h1>
           </div>
           <button onClick={logout} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
             <LogOut className="h-4 w-4" /> Logout
@@ -174,6 +322,132 @@ export default function App() {
         </div>
 
         {message && <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-3 text-sm">{message}</div>}
+
+        <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
+          <form onSubmit={saveDeliveryLocation} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-2xl">Delivery locations</h2>
+                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  Customer checkout rates
+                </p>
+              </div>
+              {editingLocationId && (
+                <button type="button" onClick={resetLocationForm} className="text-sm text-primary">
+                  New
+                </button>
+              )}
+            </div>
+
+            <label className="mt-5 block text-sm font-medium">Location name</label>
+            <input
+              required
+              value={locationForm.name}
+              onChange={(e) => setLocationForm({ ...locationForm, name: e.target.value })}
+              placeholder="Dubai"
+              className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+            />
+
+            <label className="mt-4 block text-sm font-medium">Charge AED</label>
+            <input
+              required
+              min="0"
+              step="0.01"
+              type="number"
+              value={locationForm.charge}
+              onChange={(e) => setLocationForm({ ...locationForm, charge: e.target.value })}
+              placeholder="25.00"
+              className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+            />
+
+            <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={locationForm.isActive}
+                onChange={(e) => setLocationForm({ ...locationForm, isActive: e.target.checked })}
+                className="h-4 w-4 accent-primary"
+              />
+              Show at checkout
+            </label>
+
+            <button disabled={locationBusy} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
+              {editingLocationId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {locationBusy ? "Saving..." : editingLocationId ? "Save location" : "Add location"}
+            </button>
+          </form>
+
+          <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-secondary text-primary">
+                  <MapPin className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="font-display text-2xl">Locations</h2>
+                  <p className="text-sm text-muted-foreground">{deliveryLocations.length} configured</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadDeliveryLocations()}
+                disabled={locationsLoading}
+                className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
+              >
+                {locationsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Refresh
+              </button>
+            </div>
+
+            {locationsLoading && deliveryLocations.length === 0 ? (
+              <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                Loading delivery locations...
+              </div>
+            ) : deliveryLocations.length === 0 ? (
+              <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                No delivery locations yet.
+              </div>
+            ) : (
+              <div className="mt-5 divide-y divide-border overflow-hidden rounded-2xl border border-border">
+                {deliveryLocations.map((location) => {
+                  const active = location.isActive !== false;
+                  const rowBusy = locationBusyId === location.id;
+
+                  return (
+                    <article key={location.id} className="grid gap-3 bg-background/60 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-display text-xl leading-tight">{location.name}</h3>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-widest ${active ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}>
+                            {active ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                            {active ? "Live" : "Hidden"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">AED {Number(location.charge).toFixed(2)}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleDeliveryLocation(location)}
+                          disabled={rowBusy}
+                          className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
+                        >
+                          {rowBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          {active ? "Hide" : "Show"}
+                        </button>
+                        <button onClick={() => startEditLocation(location)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
+                          <Edit3 className="h-4 w-4" /> Edit
+                        </button>
+                        <button onClick={() => deleteDeliveryLocation(location.id)} disabled={rowBusy} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60">
+                          <Trash2 className="h-4 w-4" /> Delete
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
 
         <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
           <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
@@ -219,6 +493,19 @@ export default function App() {
             <label className="mt-4 block text-sm font-medium">Description</label>
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
 
+            <div className="mt-4 rounded-2xl border border-border bg-background/60 p-4">
+              <h3 className="font-display text-xl">SEO and image text</h3>
+
+              <label className="mt-4 block text-sm font-medium">Meta title</label>
+              <input value={form.metaTitle} onChange={(e) => setForm({ ...form, metaTitle: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+
+              <label className="mt-4 block text-sm font-medium">Meta description</label>
+              <textarea value={form.metaDescription} onChange={(e) => setForm({ ...form, metaDescription: e.target.value })} rows={2} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+
+              <label className="mt-4 block text-sm font-medium">Image alt text</label>
+              <input value={form.imageAlt} onChange={(e) => setForm({ ...form, imageAlt: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+            </div>
+
             <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
               <ImagePlus className="h-5 w-5" />
               {image ? image.name : "Upload product image"}
@@ -226,7 +513,7 @@ export default function App() {
             </label>
 
             {editingProduct?.imageUrl && !image && (
-              <img src={assetUrl(editingProduct.imageUrl)} alt="" className="mt-4 aspect-video w-full rounded-2xl object-cover" />
+              <img src={assetUrl(editingProduct.imageUrl)} alt={editingProduct.imageAlt || editingProduct.name} className="mt-4 aspect-video w-full rounded-2xl object-cover" />
             )}
 
             <label className="mt-4 flex items-center gap-3 text-sm font-medium">
@@ -243,7 +530,7 @@ export default function App() {
           <div className="grid gap-4">
             {products.map((product) => (
               <article key={product.id} className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]">
-                <img src={assetUrl(product.imageUrl)} alt={product.name} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
+                <img src={assetUrl(product.imageUrl)} alt={product.imageAlt || product.name} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-caramel">{product.category}</span>
