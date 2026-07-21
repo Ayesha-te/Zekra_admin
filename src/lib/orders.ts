@@ -1,6 +1,13 @@
 import type { AdminOrder, OrderStatus } from "./api";
 
-export const orderStatuses: OrderStatus[] = ["new", "confirmed", "preparing", "ready", "completed", "cancelled"];
+export const orderStatuses: OrderStatus[] = [
+  "new",
+  "confirmed",
+  "preparing",
+  "ready",
+  "completed",
+  "cancelled",
+];
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
   new: "New",
@@ -33,12 +40,18 @@ export function formatDateTime(value: string | null | undefined) {
 }
 
 export function fulfillmentMode(order: AdminOrder) {
-  return (order.fulfillment.type || order.fulfillment.mode || "delivery").toLowerCase();
+  return (
+    order.fulfillment.type ||
+    order.fulfillment.mode ||
+    "delivery"
+  ).toLowerCase();
 }
 
 export function fulfillmentLabel(order: AdminOrder) {
   const mode = fulfillmentMode(order) === "pickup" ? "Pickup" : "Delivery";
-  return order.fulfillment.locationName ? `${mode} - ${order.fulfillment.locationName}` : mode;
+  return order.fulfillment.locationName
+    ? `${mode} - ${order.fulfillment.locationName}`
+    : mode;
 }
 
 export function orderItemCount(order: AdminOrder) {
@@ -57,7 +70,9 @@ export function orderLineTotal(item: AdminOrder["items"][number]) {
 export function orderSubtotal(order: AdminOrder) {
   const saved = Number(order.totals.subtotal);
   if (Number.isFinite(saved)) return saved;
-  return Number(order.items.reduce((sum, item) => sum + orderLineTotal(item), 0).toFixed(2));
+  return Number(
+    order.items.reduce((sum, item) => sum + orderLineTotal(item), 0).toFixed(2),
+  );
 }
 
 export function orderDeliveryFee(order: AdminOrder) {
@@ -72,13 +87,19 @@ export function orderTotal(order: AdminOrder) {
 }
 
 export function paymentMethodLabel(order: AdminOrder) {
-  const method = String(order.payment?.method || "").trim().toLowerCase();
+  const method = String(order.payment?.method || "")
+    .trim()
+    .toLowerCase();
   if (method === "stripe") return "Stripe";
-  return method ? method.replace(/^\w/, (letter) => letter.toUpperCase()) : "Not set";
+  return method
+    ? method.replace(/^\w/, (letter) => letter.toUpperCase())
+    : "Not set";
 }
 
 export function paymentStatusLabel(order: AdminOrder) {
-  const status = String(order.payment?.status || "").trim().toLowerCase();
+  const status = String(order.payment?.status || "")
+    .trim()
+    .toLowerCase();
   if (!status) return "Not paid";
   return status
     .split(/[_-]+/g)
@@ -116,8 +137,6 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     "Fulfillment",
     "Location",
     "Address",
-    "Preferred Date",
-    "Preferred Time",
     "Notes",
     "Item Count",
     "Subtotal AED",
@@ -139,8 +158,6 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     fulfillmentMode(order),
     order.fulfillment.locationName || "",
     order.fulfillment.address || "",
-    order.fulfillment.preferredDate || "",
-    order.fulfillment.preferredTime || "",
     order.notes || "",
     String(orderItemCount(order)),
     orderSubtotal(order).toFixed(2),
@@ -157,12 +174,20 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
       .join("; "),
   ]);
 
-  const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
-  saveBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `zekra-orders-${todayStamp()}.csv`);
+  const csv = [header, ...rows]
+    .map((row) => row.map(csvCell).join(","))
+    .join("\r\n");
+  saveBlob(
+    new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    `zekra-orders-${todayStamp()}.csv`,
+  );
 }
 
 export function downloadOrderPdf(order: AdminOrder) {
-  saveBlob(createOrderPdf(order), `zekra-${safeFilename(order.id || "order")}.pdf`);
+  saveBlob(
+    createOrderPdf(order),
+    `zekra-${safeFilename(order.id || "order")}.pdf`,
+  );
 }
 
 function csvCell(value: string) {
@@ -208,14 +233,22 @@ function createOrderPdf(order: AdminOrder) {
     if (y - height < bottom) addPage();
   };
 
-  const text = (x: number, textY: number, value: string, size = 10, bold = false) => {
+  const text = (
+    x: number,
+    textY: number,
+    value: string,
+    size = 10,
+    bold = false,
+  ) => {
     commands.push(
       `BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(2)} ${textY.toFixed(2)} Td (${escapePdfText(value)}) Tj ET`,
     );
   };
 
   const line = (x1: number, y1: number, x2: number, y2: number) => {
-    commands.push(`0.69 0.60 0.43 RG 0.45 w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`);
+    commands.push(
+      `0.69 0.60 0.43 RG 0.45 w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`,
+    );
   };
 
   const heading = (value: string) => {
@@ -240,22 +273,40 @@ function createOrderPdf(order: AdminOrder) {
     const paddingX = 5;
     const paddingY = 7;
     const wrapped = values.map((value, index) =>
-      wrapPdfText(value || "-", Math.max(6, Math.floor((widths[index] - paddingX * 2) / (fontSize * 0.55)))),
+      wrapPdfText(
+        value || "-",
+        Math.max(
+          6,
+          Math.floor((widths[index] - paddingX * 2) / (fontSize * 0.55)),
+        ),
+      ),
     );
-    const rowHeight = Math.max(...wrapped.map((lines) => lines.length)) * lineHeight + paddingY * 2;
+    const rowHeight =
+      Math.max(...wrapped.map((lines) => lines.length)) * lineHeight +
+      paddingY * 2;
 
     ensureSpace(rowHeight + 2);
 
     const bottomY = y - rowHeight;
     if (header) {
-      commands.push(`q 0.94 0.90 0.80 rg ${margin.toFixed(2)} ${bottomY.toFixed(2)} ${contentWidth.toFixed(2)} ${rowHeight.toFixed(2)} re f Q`);
+      commands.push(
+        `q 0.94 0.90 0.80 rg ${margin.toFixed(2)} ${bottomY.toFixed(2)} ${contentWidth.toFixed(2)} ${rowHeight.toFixed(2)} re f Q`,
+      );
     }
 
     let x = margin;
     values.forEach((_value, index) => {
-      commands.push(`${x.toFixed(2)} ${bottomY.toFixed(2)} ${widths[index].toFixed(2)} ${rowHeight.toFixed(2)} re S`);
+      commands.push(
+        `${x.toFixed(2)} ${bottomY.toFixed(2)} ${widths[index].toFixed(2)} ${rowHeight.toFixed(2)} re S`,
+      );
       wrapped[index].forEach((lineText, lineIndex) => {
-        text(x + paddingX, y - paddingY - fontSize - lineIndex * lineHeight, lineText, fontSize, header);
+        text(
+          x + paddingX,
+          y - paddingY - fontSize - lineIndex * lineHeight,
+          lineText,
+          fontSize,
+          header,
+        );
       });
       x += widths[index];
     });
@@ -265,7 +316,12 @@ function createOrderPdf(order: AdminOrder) {
 
   text(margin, y, "Zekra Sweets", 18, true);
   text(margin, y - 19, `Order ${order.id}`, 13, true);
-  text(margin, y - 36, `Status: ${orderStatusLabels[order.status] || order.status}`, 10);
+  text(
+    margin,
+    y - 36,
+    `Status: ${orderStatusLabels[order.status] || order.status}`,
+    10,
+  );
   text(pageWidth - margin - 170, y - 19, formatDateTime(order.createdAt), 10);
   y -= 58;
   line(margin, y, pageWidth - margin, y);
@@ -274,14 +330,22 @@ function createOrderPdf(order: AdminOrder) {
   heading("Order summary");
   tableRow(["Customer", order.customer.name || "-"], [120, contentWidth - 120]);
   tableRow(["Phone", order.customer.phone || "-"], [120, contentWidth - 120]);
-  if (order.customer.email) tableRow(["Email", order.customer.email], [120, contentWidth - 120]);
+  if (order.customer.email)
+    tableRow(["Email", order.customer.email], [120, contentWidth - 120]);
   tableRow(["Fulfillment", fulfillmentLabel(order)], [120, contentWidth - 120]);
-  tableRow(["Address", order.fulfillment.address || "-"], [120, contentWidth - 120]);
-  tableRow(["Preferred date", order.fulfillment.preferredDate || "-"], [120, contentWidth - 120]);
-  tableRow(["Preferred time", order.fulfillment.preferredTime || "-"], [120, contentWidth - 120]);
-  tableRow(["Payment", `${paymentMethodLabel(order)} - ${paymentStatusLabel(order)}`], [120, contentWidth - 120]);
+  tableRow(
+    ["Address", order.fulfillment.address || "-"],
+    [120, contentWidth - 120],
+  );
+  tableRow(
+    ["Payment", `${paymentMethodLabel(order)} - ${paymentStatusLabel(order)}`],
+    [120, contentWidth - 120],
+  );
   if (order.payment?.stripeSessionId) {
-    tableRow(["Stripe session", order.payment.stripeSessionId], [120, contentWidth - 120]);
+    tableRow(
+      ["Stripe session", order.payment.stripeSessionId],
+      [120, contentWidth - 120],
+    );
   }
   y -= 16;
 
@@ -291,13 +355,22 @@ function createOrderPdf(order: AdminOrder) {
   }
 
   heading("Items");
-  tableRow(["Item", "Qty", "Unit", "Line total"], [contentWidth - 178, 40, 68, 70], true);
+  tableRow(
+    ["Item", "Qty", "Unit", "Line total"],
+    [contentWidth - 178, 40, 68, 70],
+    true,
+  );
   if (order.items.length === 0) {
     tableRow(["No items", "-", "-", "-"], [contentWidth - 178, 40, 68, 70]);
   } else {
     order.items.forEach((item) => {
       tableRow(
-        [item.name, String(item.quantity), formatMoney(item.unitPrice), formatMoney(orderLineTotal(item))],
+        [
+          item.name,
+          String(item.quantity),
+          formatMoney(item.unitPrice),
+          formatMoney(orderLineTotal(item)),
+        ],
         [contentWidth - 178, 40, 68, 70],
       );
     });
@@ -305,9 +378,19 @@ function createOrderPdf(order: AdminOrder) {
   y -= 16;
 
   heading("Totals");
-  tableRow(["Subtotal", formatMoney(orderSubtotal(order))], [contentWidth - 120, 120]);
-  tableRow(["Delivery", formatMoney(orderDeliveryFee(order))], [contentWidth - 120, 120]);
-  tableRow(["Total", formatMoney(orderTotal(order))], [contentWidth - 120, 120], true);
+  tableRow(
+    ["Subtotal", formatMoney(orderSubtotal(order))],
+    [contentWidth - 120, 120],
+  );
+  tableRow(
+    ["Delivery", formatMoney(orderDeliveryFee(order))],
+    [contentWidth - 120, 120],
+  );
+  tableRow(
+    ["Total", formatMoney(orderTotal(order))],
+    [contentWidth - 120, 120],
+    true,
+  );
 
   if (commands.length) pages.push(commands);
   return buildPdf(pages.map((page) => page.join("\n")));
@@ -370,7 +453,8 @@ function buildPdf(pageStreams: string[]) {
   pageStreams.forEach((stream, index) => {
     objects[pageIds[index]] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentIds[index]} 0 R >>`;
-    objects[contentIds[index]] = `<< /Length ${encoder.encode(stream).length} >>\nstream\n${stream}\nendstream`;
+    objects[contentIds[index]] =
+      `<< /Length ${encoder.encode(stream).length} >>\nstream\n${stream}\nendstream`;
   });
 
   let pdf = "%PDF-1.4\n";
