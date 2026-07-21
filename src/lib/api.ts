@@ -68,6 +68,18 @@ export type AdminOrder = {
     deliveryFee?: number;
     total?: number;
   };
+  payment?: {
+    method?: string;
+    provider?: string;
+    status?: string;
+    stripeSessionId?: string;
+    stripePaymentIntentId?: string;
+    currency?: string;
+    amount?: number;
+    paidAt?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  };
   createdAt: string;
   updatedAt?: string;
 };

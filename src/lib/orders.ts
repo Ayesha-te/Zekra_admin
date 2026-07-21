@@ -71,10 +71,27 @@ export function orderTotal(order: AdminOrder) {
   return Number((orderSubtotal(order) + orderDeliveryFee(order)).toFixed(2));
 }
 
+export function paymentMethodLabel(order: AdminOrder) {
+  const method = String(order.payment?.method || "").trim().toLowerCase();
+  if (method === "stripe") return "Stripe";
+  return method ? method.replace(/^\w/, (letter) => letter.toUpperCase()) : "Not set";
+}
+
+export function paymentStatusLabel(order: AdminOrder) {
+  const status = String(order.payment?.status || "").trim().toLowerCase();
+  if (!status) return "Not paid";
+  return status
+    .split(/[_-]+/g)
+    .map((part) => part.replace(/^\w/, (letter) => letter.toUpperCase()))
+    .join(" ");
+}
+
 export function orderSearchText(order: AdminOrder) {
   return [
     order.id,
     order.status,
+    paymentMethodLabel(order),
+    paymentStatusLabel(order),
     order.customer.name,
     order.customer.phone,
     order.customer.email,
@@ -106,6 +123,9 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     "Subtotal AED",
     "Delivery AED",
     "Total AED",
+    "Payment Method",
+    "Payment Status",
+    "Stripe Session",
     "Items",
   ];
 
@@ -126,6 +146,9 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     orderSubtotal(order).toFixed(2),
     orderDeliveryFee(order).toFixed(2),
     orderTotal(order).toFixed(2),
+    paymentMethodLabel(order),
+    paymentStatusLabel(order),
+    order.payment?.stripeSessionId || "",
     order.items
       .map(
         (item) =>
@@ -256,6 +279,10 @@ function createOrderPdf(order: AdminOrder) {
   tableRow(["Address", order.fulfillment.address || "-"], [120, contentWidth - 120]);
   tableRow(["Preferred date", order.fulfillment.preferredDate || "-"], [120, contentWidth - 120]);
   tableRow(["Preferred time", order.fulfillment.preferredTime || "-"], [120, contentWidth - 120]);
+  tableRow(["Payment", `${paymentMethodLabel(order)} - ${paymentStatusLabel(order)}`], [120, contentWidth - 120]);
+  if (order.payment?.stripeSessionId) {
+    tableRow(["Stripe session", order.payment.stripeSessionId], [120, contentWidth - 120]);
+  }
   y -= 16;
 
   if (order.notes) {

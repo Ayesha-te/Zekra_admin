@@ -46,6 +46,8 @@ import {
   orderStatuses,
   orderSubtotal,
   orderTotal,
+  paymentMethodLabel,
+  paymentStatusLabel,
 } from "./lib/orders";
 
 const emptyForm = {
@@ -534,6 +536,17 @@ export default function App() {
           </section>
 
           <section>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Payment</h4>
+            <dl className="mt-3 grid gap-3">
+              <DetailRow label="Method" value={paymentMethodLabel(order)} />
+              <DetailRow label="Status" value={paymentStatusLabel(order)} />
+              {order.payment?.stripeSessionId && (
+                <DetailRow label="Stripe" value={order.payment.stripeSessionId} />
+              )}
+            </dl>
+          </section>
+
+          <section>
             <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Items</h4>
             <div className="mt-3 overflow-hidden rounded-xl border border-border">
               <div className="hidden grid-cols-[minmax(0,1fr)_46px_82px] gap-2 bg-muted/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:grid">
@@ -814,6 +827,17 @@ export default function App() {
                           <DetailRow label="Location" value={activeOrder.fulfillment.locationName || "-"} />
                           <DetailRow label="Address" value={activeOrder.fulfillment.address || "-"} />
                           {activeOrder.notes && <DetailRow label="Notes" value={activeOrder.notes} />}
+                        </dl>
+                      </section>
+
+                      <section>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Payment</h4>
+                        <dl className="mt-3 grid gap-3">
+                          <DetailRow label="Method" value={paymentMethodLabel(activeOrder)} />
+                          <DetailRow label="Status" value={paymentStatusLabel(activeOrder)} />
+                          {activeOrder.payment?.stripeSessionId && (
+                            <DetailRow label="Stripe" value={activeOrder.payment.stripeSessionId} />
+                          )}
                         </dl>
                       </section>
 
