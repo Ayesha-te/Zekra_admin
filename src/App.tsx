@@ -1,18 +1,51 @@
 import {
+  CheckCircle2,
+  ClipboardList,
+  Download,
   Edit3,
   Eye,
   EyeOff,
+  FileText,
+  Filter,
   ImagePlus,
   Loader2,
   LogOut,
   MapPin,
+  PackageCheck,
   Plus,
   RefreshCw,
   Save,
+  Search,
+  ShoppingBag,
   Trash2,
+  Truck,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiFetch, assetUrl, type DeliveryLocation, type Product } from "./lib/api";
+import {
+  apiFetch,
+  assetUrl,
+  fetchAdminOrders,
+  updateAdminOrderStatus,
+  type AdminOrder,
+  type DeliveryLocation,
+  type OrderStatus,
+  type Product,
+} from "./lib/api";
+import {
+  downloadOrderPdf,
+  downloadOrdersCsv,
+  formatDateTime,
+  formatMoney,
+  fulfillmentLabel,
+  fulfillmentMode,
+  orderDeliveryFee,
+  orderItemCount,
+  orderSearchText,
+  orderStatusLabels,
+  orderStatuses,
+  orderSubtotal,
+  orderTotal,
+} from "./lib/orders";
 
 const emptyForm = {
   name: "",
@@ -25,66 +58,31 @@ const emptyForm = {
   metaTitle: "",
   metaDescription: "",
   imageAlt: "",
+  primaryKeyword: "",
+  secondaryKeywords: "",
+  canonicalUrl: "",
+  ogTitle: "",
+  ogDescription: "",
+  ogImage: "",
+  robotsIndex: true,
+  robotsFollow: true,
   isActive: true,
 };
 
 type ProductForm = typeof emptyForm;
-type SeoField = "urlSlug" | "metaTitle" | "metaDescription" | "imageAlt";
-type SeoEditState = Record<SeoField, boolean>;
-
-function createSeoEditState(value = false): SeoEditState {
-  return {
-    urlSlug: value,
-    metaTitle: value,
-    metaDescription: value,
-    imageAlt: value,
-  };
-}
-
-function normalizeSlug(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function generateSeoFields(nameValue: string, categoryValue: string): Pick<ProductForm, SeoField> {
-  const name = nameValue.trim();
-  const category = categoryValue.trim();
-  const lowerName = name.toLowerCase();
-  const lowerCategory = category.toLowerCase();
-
-  if (!name) {
-    return {
-      urlSlug: "",
-      metaTitle: "",
-      metaDescription: "",
-      imageAlt: "",
-    };
-  }
-
-  return {
-    urlSlug: normalizeSlug(`${category} ${name}`),
-    metaTitle: `${name} - ${category} | Zekra Sweets`,
-    metaDescription: `Order ${name} from Zekra Sweets. Fresh handmade ${lowerCategory} baked with care in Ajman, UAE.`,
-    imageAlt: lowerName.includes(lowerCategory)
-      ? `${name} from Zekra Sweets`
-      : `${name} ${lowerCategory} from Zekra Sweets`,
-  };
-}
-
-function applyGeneratedSeo(nextForm: ProductForm, editedSeoFields: SeoEditState): ProductForm {
-  const generated = generateSeoFields(nextForm.name, nextForm.category);
-
-  return {
-    ...nextForm,
-    urlSlug: editedSeoFields.urlSlug ? nextForm.urlSlug : generated.urlSlug,
-    metaTitle: editedSeoFields.metaTitle ? nextForm.metaTitle : generated.metaTitle,
-    metaDescription: editedSeoFields.metaDescription ? nextForm.metaDescription : generated.metaDescription,
-    imageAlt: editedSeoFields.imageAlt ? nextForm.imageAlt : generated.imageAlt,
-  };
-}
+type SeoField =
+  | "urlSlug"
+  | "metaTitle"
+  | "metaDescription"
+  | "imageAlt"
+  | "primaryKeyword"
+  | "secondaryKeywords"
+  | "canonicalUrl"
+  | "ogTitle"
+  | "ogDescription"
+  | "ogImage";
+type AdminTab = "orders" | "products" | "locations";
+type OrderFilter = OrderStatus | "all";
 
 const emptyLocationForm = {
   name: "",
@@ -94,12 +92,161 @@ const emptyLocationForm = {
 
 type LocationForm = typeof emptyLocationForm;
 
+function normalizeSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function generateSeoFields(
+  nameValue: string,
+  categoryValue: string,
+  descriptionValue = "",
+  imageUrlValue = "",
+): Pick<ProductForm, SeoField> {
+  const name = nameValue.trim();
+  const category = categoryValue.trim();
+  const displayName = name.replace(/\s*\|\s*/g, " - ");
+  const lowerName = displayName.toLowerCase();
+  const lowerCategory = category.toLowerCase();
+  const slug = normalizeSlug(displayName);
+  const description = descriptionValue.trim().replace(/\s+/g, " ");
+  const metaDescription =
+    description ||
+    `Fresh handmade ${lowerCategory || "bakery treat"} from Zekra Sweets.`;
+
+  if (!name) {
+    return {
+      urlSlug: "",
+      metaTitle: "",
+      metaDescription: "",
+      imageAlt: "",
+      primaryKeyword: "",
+      secondaryKeywords: "",
+      canonicalUrl: "",
+      ogTitle: "",
+      ogDescription: "",
+      ogImage: "",
+    };
+  }
+
+  const title =
+    category && !lowerName.includes(lowerCategory)
+      ? `${displayName} - ${category} | Zekra Sweets`
+      : `Buy ${displayName} Online | Zekra Sweets`;
+  const descriptionText = `Shop ${displayName} from Zekra Sweets. ${metaDescription} Order online today.`;
+  const secondaryKeywords = [
+    lowerName,
+    lowerCategory ? `${lowerCategory} online` : "",
+    lowerCategory ? `buy ${lowerCategory} online` : "",
+    `zekra sweets ${lowerName}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    urlSlug: slug,
+    metaTitle: title,
+    metaDescription: descriptionText,
+    imageAlt: lowerCategory && !lowerName.includes(lowerCategory) ? `${displayName} - ${lowerCategory}` : displayName,
+    primaryKeyword: lowerName,
+    secondaryKeywords,
+    canonicalUrl: `https://zekrasweets.com/products/${slug}`,
+    ogTitle: title,
+    ogDescription: descriptionText,
+    ogImage: imageUrlValue,
+  };
+}
+
+function applyMissingSeo(nextForm: ProductForm): ProductForm {
+  const generated = generateSeoFields(
+    nextForm.name,
+    nextForm.category,
+    nextForm.description,
+    nextForm.ogImage,
+  );
+  const nextSeoFields = Object.fromEntries(
+    (Object.keys(generated) as SeoField[]).map((field) => [
+      field,
+      String(nextForm[field] || "").trim() ? nextForm[field] : generated[field],
+    ]),
+  ) as Pick<ProductForm, SeoField>;
+
+  return {
+    ...nextForm,
+    ...nextSeoFields,
+  };
+}
+
+function generatedImageAlt(name: string, category: string) {
+  return generateSeoFields(name, category).imageAlt || name;
+}
+
+function seoFieldState(value: string) {
+  return value.trim() ? "Manual" : "Auto";
+}
+
+function seoPreviewValue(form: ProductForm, field: SeoField) {
+  return form[field] || generateSeoFields(form.name, form.category, form.description, form.ogImage)[field];
+}
+
+function statusTone(status: OrderStatus) {
+  switch (status) {
+    case "new":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "confirmed":
+      return "border-sky-200 bg-sky-50 text-sky-800";
+    case "preparing":
+      return "border-orange-200 bg-orange-50 text-orange-800";
+    case "ready":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "completed":
+      return "border-green-200 bg-green-50 text-green-800";
+    case "cancelled":
+      return "border-rose-200 bg-rose-50 text-rose-800";
+    default:
+      return "border-border bg-muted text-muted-foreground";
+  }
+}
+
+function activeTabClass(active: boolean) {
+  return active
+    ? "border-primary bg-gradient-gold text-primary-foreground shadow-glow"
+    : "border-border bg-background/70 text-muted-foreground hover:border-primary/40 hover:bg-secondary hover:text-foreground";
+}
+
+function actionButtonClass(tone: "neutral" | "primary" | "danger" = "neutral") {
+  if (tone === "primary") {
+    return "inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-gold px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition disabled:opacity-60";
+  }
+  if (tone === "danger") {
+    return "inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-60";
+  }
+  return "inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-secondary disabled:opacity-60";
+}
+
+function shortOrderDate(value: string) {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-AE", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default function App() {
   const [token, setToken] = useState("");
+  const [activeTab, setActiveTab] = useState<AdminTab>("orders");
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [deliveryLocations, setDeliveryLocations] = useState<DeliveryLocation[]>([]);
   const [form, setForm] = useState<ProductForm>(emptyForm);
-  const [editedSeoFields, setEditedSeoFields] = useState<SeoEditState>(() => createSeoEditState());
   const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocationForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
@@ -108,6 +255,11 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [orderBusyId, setOrderBusyId] = useState<string | null>(null);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState<OrderFilter>("all");
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationBusyId, setLocationBusyId] = useState<string | null>(null);
@@ -116,20 +268,70 @@ export default function App() {
     document.title = "Admin - Zekra Sweets";
   }, []);
 
+  useEffect(() => {
+    setToken(localStorage.getItem("adminToken") || "");
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    loadOrders(token);
+    loadProducts(token);
+    loadDeliveryLocations(token);
+  }, [token]);
+
   const editingProduct = useMemo(
     () => products.find((product) => product.id === editingId),
     [editingId, products],
   );
 
-  useEffect(() => {
-    if (!token) return;
-    loadProducts(token);
-    loadDeliveryLocations(token);
-  }, [token]);
+  const filteredOrders = useMemo(() => {
+    const query = orderSearch.trim().toLowerCase();
 
-  useEffect(() => {
-    setToken(localStorage.getItem("adminToken") || "");
-  }, []);
+    return orders.filter((order) => {
+      const matchesStatus = orderStatusFilter === "all" || order.status === orderStatusFilter;
+      const matchesSearch = !query || orderSearchText(order).includes(query);
+      return matchesStatus && matchesSearch;
+    });
+  }, [orders, orderSearch, orderStatusFilter]);
+
+  const activeOrder = useMemo(() => {
+    if (selectedOrderId) {
+      const selectedVisibleOrder = filteredOrders.find((order) => order.id === selectedOrderId);
+      if (selectedVisibleOrder) return selectedVisibleOrder;
+    }
+
+    return filteredOrders[0] || null;
+  }, [filteredOrders, selectedOrderId]);
+
+  const orderMetrics = useMemo(() => {
+    const openOrders = orders.filter((order) => order.status !== "completed" && order.status !== "cancelled").length;
+    const completedOrders = orders.filter((order) => order.status === "completed").length;
+    const revenue = orders
+      .filter((order) => order.status !== "cancelled")
+      .reduce((sum, order) => sum + orderTotal(order), 0);
+
+    return [
+      { label: "Total orders", value: String(orders.length), detail: "Loaded in admin", icon: ClipboardList },
+      { label: "Open orders", value: String(openOrders), detail: "New to ready", icon: Truck },
+      { label: "Completed", value: String(completedOrders), detail: "Finished orders", icon: CheckCircle2 },
+      { label: "Total revenue", value: formatMoney(revenue), detail: "Excluding cancelled", icon: PackageCheck },
+    ];
+  }, [orders]);
+
+  async function loadOrders(authToken = token) {
+    setOrdersLoading(true);
+    try {
+      const nextOrders = await fetchAdminOrders(authToken);
+      setOrders(nextOrders);
+      setSelectedOrderId((currentId) =>
+        currentId && nextOrders.some((order) => order.id === currentId) ? currentId : nextOrders[0]?.id ?? null,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load orders");
+    } finally {
+      setOrdersLoading(false);
+    }
+  }
 
   async function loadProducts(authToken = token) {
     try {
@@ -224,7 +426,6 @@ export default function App() {
   }
 
   function startEdit(product: Product) {
-    const generated = generateSeoFields(product.name, product.category);
     const nextForm = {
       name: product.name,
       category: product.category,
@@ -236,18 +437,21 @@ export default function App() {
       metaTitle: product.metaTitle || "",
       metaDescription: product.metaDescription || "",
       imageAlt: product.imageAlt || "",
+      primaryKeyword: product.primaryKeyword || "",
+      secondaryKeywords: Array.isArray(product.secondaryKeywords)
+        ? product.secondaryKeywords.join(", ")
+        : "",
+      canonicalUrl: product.canonicalUrl || "",
+      ogTitle: product.ogTitle || "",
+      ogDescription: product.ogDescription || "",
+      ogImage: product.ogImage || "",
+      robotsIndex: product.robotsIndex !== false,
+      robotsFollow: product.robotsFollow !== false,
       isActive: product.isActive !== false,
-    };
-    const nextEditedSeoFields = {
-      urlSlug: Boolean(product.urlSlug && product.urlSlug !== generated.urlSlug),
-      metaTitle: Boolean(product.metaTitle && product.metaTitle !== generated.metaTitle),
-      metaDescription: Boolean(product.metaDescription && product.metaDescription !== generated.metaDescription),
-      imageAlt: Boolean(product.imageAlt && product.imageAlt !== generated.imageAlt),
     };
 
     setEditingId(product.id);
-    setEditedSeoFields(nextEditedSeoFields);
-    setForm(applyGeneratedSeo(nextForm, nextEditedSeoFields));
+    setForm(nextForm);
     setImage(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -255,22 +459,28 @@ export default function App() {
   function resetProductForm() {
     setEditingId(null);
     setForm(emptyForm);
-    setEditedSeoFields(createSeoEditState());
     setImage(null);
   }
 
   function updateProductIdentity(updates: Partial<Pick<ProductForm, "name" | "category">>) {
-    setForm((currentForm) => applyGeneratedSeo({ ...currentForm, ...updates }, editedSeoFields));
+    setForm((currentForm) => ({ ...currentForm, ...updates }));
   }
 
-  function updateSeoField(field: SeoField, value: string) {
-    setEditedSeoFields((currentFields) => ({ ...currentFields, [field]: true }));
-    setForm((currentForm) => ({ ...currentForm, [field]: value }));
+  function fillMissingSeoSuggestions() {
+    setForm((currentForm) => applyMissingSeo(currentForm));
   }
 
-  function regenerateSeoFields() {
-    setForm((currentForm) => ({ ...currentForm, ...generateSeoFields(currentForm.name, currentForm.category) }));
-    setEditedSeoFields(createSeoEditState());
+  function regenerateSeoSuggestions() {
+    if (!confirm("Replace all SEO fields with generated suggestions?")) return;
+    setForm((currentForm) => ({
+      ...currentForm,
+      ...generateSeoFields(
+        currentForm.name,
+        currentForm.category,
+        currentForm.description,
+        currentForm.ogImage,
+      ),
+    }));
   }
 
   async function saveDeliveryLocation(event: FormEvent) {
@@ -371,12 +581,643 @@ export default function App() {
     }
   }
 
+  async function changeOrderStatus(order: AdminOrder, status: OrderStatus) {
+    if (order.status === status) return;
+    setOrderBusyId(order.id);
+    setMessage("");
+
+    try {
+      const updatedOrder = await updateAdminOrderStatus(token, order.id, status);
+      setOrders((currentOrders) =>
+        currentOrders.map((currentOrder) => (currentOrder.id === updatedOrder.id ? updatedOrder : currentOrder)),
+      );
+      setSelectedOrderId(updatedOrder.id);
+      setMessage(`Order ${updatedOrder.id} marked ${orderStatusLabels[updatedOrder.status]}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update order status");
+    } finally {
+      setOrderBusyId(null);
+    }
+  }
+
   function logout() {
     localStorage.removeItem("adminToken");
     setToken("");
+    setOrders([]);
     setProducts([]);
     setDeliveryLocations([]);
+    setSelectedOrderId(null);
+    setActiveTab("orders");
+    resetProductForm();
     resetLocationForm();
+  }
+
+  function renderOrdersTab() {
+    return (
+      <section className="mt-8 space-y-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {orderMetrics.map((metric) => {
+            const Icon = metric.icon;
+
+            return (
+              <article key={metric.label} className="rounded-2xl border border-border bg-card p-4 shadow-glass">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{metric.label}</p>
+                    <p className="mt-2 truncate font-display text-3xl leading-none">{metric.value}</p>
+                  </div>
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-secondary text-primary">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">{metric.detail}</p>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="rounded-3xl border border-border bg-card p-4 shadow-glass sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-2xl">Orders</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {filteredOrders.length} shown from {orders.length} loaded
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => loadOrders()}
+                disabled={ordersLoading}
+                className={actionButtonClass()}
+              >
+                {ordersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadOrdersCsv(orders)}
+                disabled={orders.length === 0}
+                className={actionButtonClass("primary")}
+              >
+                <Download className="h-4 w-4" />
+                CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(260px,1fr)_220px]">
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={orderSearch}
+                onChange={(event) => setOrderSearch(event.target.value)}
+                placeholder="Search order, customer, phone, item"
+                className="w-full rounded-xl border border-border bg-background px-10 py-3 text-sm outline-none transition focus:border-primary"
+              />
+            </label>
+
+            <label className="relative block">
+              <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <select
+                value={orderStatusFilter}
+                onChange={(event) => setOrderStatusFilter(event.target.value as OrderFilter)}
+                className="w-full appearance-none rounded-xl border border-border bg-background px-10 py-3 text-sm font-medium outline-none transition focus:border-primary"
+              >
+                <option value="all">All statuses</option>
+                {orderStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {orderStatusLabels[status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {ordersLoading && orders.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+              Loading orders...
+            </div>
+          ) : orders.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+              No customer orders yet.
+            </div>
+          ) : filteredOrders.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+              No orders match those filters.
+            </div>
+          ) : (
+            <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+              <div className="overflow-hidden rounded-2xl border border-border">
+                <div className="hidden grid-cols-[minmax(120px,1fr)_minmax(125px,0.95fr)_minmax(150px,1.1fr)_44px_86px_118px_104px] gap-2 border-b border-border bg-muted/70 px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground lg:grid">
+                  <span>Order / date</span>
+                  <span>Customer</span>
+                  <span>Fulfillment</span>
+                  <span>Items</span>
+                  <span>Total</span>
+                  <span>Status</span>
+                  <span>Actions</span>
+                </div>
+
+                <div className="divide-y divide-border">
+                  {filteredOrders.map((order) => {
+                    const selected = activeOrder?.id === order.id;
+                    const updating = orderBusyId === order.id;
+
+                    return (
+                      <article
+                        key={order.id}
+                        className={`grid gap-3 bg-background/60 p-4 transition hover:bg-secondary/30 lg:grid-cols-[minmax(120px,1fr)_minmax(125px,0.95fr)_minmax(150px,1.1fr)_44px_86px_118px_104px] lg:items-center lg:gap-2 lg:px-3 ${
+                          selected ? "bg-secondary/45" : ""
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-mono text-xs font-semibold text-cocoa break-all">{order.id}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{shortOrderDate(order.createdAt)}</p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{order.customer.name || "Customer"}</p>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">{order.customer.phone || "No phone"}</p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{fulfillmentLabel(order)}</p>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">
+                            {order.fulfillment.address || order.fulfillment.preferredDate || "No details"}
+                          </p>
+                        </div>
+                        <p className="text-sm font-semibold">
+                          <span className="text-xs font-medium text-muted-foreground lg:hidden">Items </span>
+                          {orderItemCount(order)}
+                        </p>
+                        <p className="text-sm font-semibold">{formatMoney(orderTotal(order))}</p>
+                        <select
+                          value={order.status}
+                          onChange={(event) => changeOrderStatus(order, event.target.value as OrderStatus)}
+                          disabled={updating}
+                          aria-label={`Change status for ${order.id}`}
+                          className={`w-full rounded-xl border px-3 py-2 text-xs font-semibold outline-none transition focus:border-primary disabled:opacity-60 ${statusTone(order.status)}`}
+                        >
+                          {orderStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {orderStatusLabels[status]}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex min-w-0 flex-wrap items-center gap-2 lg:flex-col lg:items-stretch lg:gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedOrderId(order.id)}
+                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold transition hover:bg-card lg:w-full lg:flex-none"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            Details
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadOrderPdf(order)}
+                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold transition hover:bg-card lg:w-full lg:flex-none"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            PDF
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <aside className="h-fit rounded-2xl border border-border bg-background/70 p-4 xl:sticky xl:top-6">
+                {activeOrder ? (
+                  <div>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className={`inline-flex rounded-xl border px-3 py-1 text-xs font-semibold ${statusTone(activeOrder.status)}`}>
+                          {orderStatusLabels[activeOrder.status]}
+                        </span>
+                        <h3 className="mt-3 break-all font-mono text-sm font-semibold">{activeOrder.id}</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(activeOrder.createdAt)}</p>
+                      </div>
+                      <button type="button" onClick={() => downloadOrderPdf(activeOrder)} className={actionButtonClass()}>
+                        <Download className="h-4 w-4" />
+                        PDF
+                      </button>
+                    </div>
+
+                    <div className="mt-5 grid grid-cols-2 gap-2">
+                      {orderStatuses.map((status) => (
+                        <button
+                          key={status}
+                          type="button"
+                          disabled={orderBusyId === activeOrder.id}
+                          onClick={() => changeOrderStatus(activeOrder, status)}
+                          className={`rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-60 ${
+                            activeOrder.status === status
+                              ? "border-primary bg-secondary text-primary"
+                              : "border-border bg-card hover:bg-secondary"
+                          }`}
+                        >
+                          {orderStatusLabels[status]}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-5 space-y-5 text-sm">
+                      <section>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Customer</h4>
+                        <dl className="mt-3 grid gap-3">
+                          <DetailRow label="Name" value={activeOrder.customer.name || "-"} />
+                          <DetailRow label="Phone" value={activeOrder.customer.phone || "-"} />
+                          {activeOrder.customer.email && <DetailRow label="Email" value={activeOrder.customer.email} />}
+                        </dl>
+                      </section>
+
+                      <section>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Fulfillment</h4>
+                        <dl className="mt-3 grid gap-3">
+                          <DetailRow label="Type" value={fulfillmentMode(activeOrder) === "pickup" ? "Pickup" : "Delivery"} />
+                          <DetailRow label="Location" value={activeOrder.fulfillment.locationName || "-"} />
+                          <DetailRow label="Address" value={activeOrder.fulfillment.address || "-"} />
+                          <DetailRow label="Date" value={activeOrder.fulfillment.preferredDate || "-"} />
+                          <DetailRow label="Time" value={activeOrder.fulfillment.preferredTime || "-"} />
+                          {activeOrder.notes && <DetailRow label="Notes" value={activeOrder.notes} />}
+                        </dl>
+                      </section>
+
+                      <section>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Items</h4>
+                        <div className="mt-3 overflow-hidden rounded-xl border border-border">
+                          <div className="hidden grid-cols-[minmax(0,1fr)_46px_82px] gap-2 bg-muted/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:grid">
+                            <span>Item</span>
+                            <span>Qty</span>
+                            <span>Total</span>
+                          </div>
+                          <div className="divide-y divide-border">
+                            {activeOrder.items.map((item) => (
+                              <div key={`${activeOrder.id}-${item.productId || item.id || item.name}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
+                                <div className="min-w-0">
+                                  <p className="break-words font-semibold">{item.name}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">{formatMoney(item.unitPrice)} each</p>
+                                </div>
+                                <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
+                                  <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Qty</span>
+                                  {item.quantity}
+                                </p>
+                                <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
+                                  <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Line</span>
+                                  {formatMoney(Number(item.lineTotal ?? item.quantity * item.unitPrice))}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="border-t border-border pt-4">
+                        <div className="space-y-2">
+                          <TotalRow label="Subtotal" value={formatMoney(orderSubtotal(activeOrder))} />
+                          <TotalRow label="Delivery" value={formatMoney(orderDeliveryFee(activeOrder))} />
+                          <TotalRow label="Total" value={formatMoney(orderTotal(activeOrder))} strong />
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+                    Select an order to inspect details.
+                  </div>
+                )}
+              </aside>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderProductsTab() {
+    return (
+      <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
+        <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-2xl">{editingId ? "Edit product" : "Add product"}</h2>
+            {editingId && (
+              <button type="button" onClick={resetProductForm} className="text-sm text-primary">
+                New product
+              </button>
+            )}
+          </div>
+
+          <label className="mt-5 block text-sm font-medium">Product name</label>
+          <input required value={form.name} onChange={(e) => updateProductIdentity({ name: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium">Category</label>
+              <select value={form.category} onChange={(e) => updateProductIdentity({ category: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary">
+                <option>Cookies</option>
+                <option>Sweets</option>
+                <option>Rusk</option>
+                <option>Puff</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Tag</label>
+              <input value={form.tag} placeholder="Offer, Fresh, New" onChange={(e) => setForm({ ...form, tag: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium">Price AED</label>
+              <input required type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Old price</label>
+              <input type="number" step="0.01" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+            </div>
+          </div>
+
+          <label className="mt-4 block text-sm font-medium">Description</label>
+          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+
+          <div className="mt-4 rounded-2xl border border-border bg-background/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-display text-xl">SEO</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Empty fields are generated automatically. Existing values are kept when you save.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={fillMissingSeoSuggestions} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold text-primary hover:bg-secondary">
+                  <RefreshCw className="h-3.5 w-3.5" /> Fill missing
+                </button>
+                <button type="button" onClick={regenerateSeoSuggestions} className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-secondary px-3 py-2 text-xs font-semibold text-primary hover:bg-card">
+                  <RefreshCw className="h-3.5 w-3.5" /> Regenerate
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-border bg-card p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Search preview</div>
+              <div className="mt-2 text-sm font-semibold text-primary">{seoPreviewValue(form, "metaTitle") || "SEO title"}</div>
+              <div className="mt-1 break-all font-mono text-xs text-caramel">{seoPreviewValue(form, "canonicalUrl") || "https://zekrasweets.com/products/example"}</div>
+              <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{seoPreviewValue(form, "metaDescription") || "Meta description preview"}</div>
+            </div>
+
+            <label className="mt-4 block text-sm font-medium">
+              SEO title
+              <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.metaTitle)}</span>
+              <span className="float-right text-xs text-muted-foreground">{form.metaTitle.length}/60</span>
+            </label>
+            <input value={form.metaTitle} onChange={(e) => setForm({ ...form, metaTitle: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).metaTitle} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+
+            <label className="mt-4 block text-sm font-medium">
+              Meta description
+              <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.metaDescription)}</span>
+              <span className="float-right text-xs text-muted-foreground">{form.metaDescription.length}/160</span>
+            </label>
+            <textarea value={form.metaDescription} onChange={(e) => setForm({ ...form, metaDescription: e.target.value })} rows={2} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).metaDescription} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium">Slug <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.urlSlug)}</span></label>
+                <input value={form.urlSlug} onChange={(e) => setForm({ ...form, urlSlug: normalizeSlug(e.target.value) })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).urlSlug} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Primary keyword <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.primaryKeyword)}</span></label>
+                <input value={form.primaryKeyword} onChange={(e) => setForm({ ...form, primaryKeyword: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).primaryKeyword} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+              </div>
+            </div>
+
+            <label className="mt-4 block text-sm font-medium">Secondary keywords <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.secondaryKeywords)}</span></label>
+            <input value={form.secondaryKeywords} onChange={(e) => setForm({ ...form, secondaryKeywords: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).secondaryKeywords} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+            <p className="mt-1 text-xs text-muted-foreground">Comma-separated for internal optimisation only. No meta keywords tag is rendered.</p>
+
+            <label className="mt-4 block text-sm font-medium">Image alt text <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.imageAlt)}</span></label>
+            <input value={form.imageAlt} onChange={(e) => setForm({ ...form, imageAlt: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).imageAlt} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+
+            <label className="mt-4 block text-sm font-medium">Canonical URL <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.canonicalUrl)}</span></label>
+            <input value={form.canonicalUrl} onChange={(e) => setForm({ ...form, canonicalUrl: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).canonicalUrl} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium">OG title <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.ogTitle)}</span></label>
+                <input value={form.ogTitle} onChange={(e) => setForm({ ...form, ogTitle: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).ogTitle} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">OG image URL <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.ogImage)}</span></label>
+                <input value={form.ogImage} onChange={(e) => setForm({ ...form, ogImage: e.target.value })} placeholder="/seed-products/example.jpg" className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+              </div>
+            </div>
+
+            <label className="mt-4 block text-sm font-medium">OG description <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.ogDescription)}</span></label>
+            <textarea value={form.ogDescription} onChange={(e) => setForm({ ...form, ogDescription: e.target.value })} rows={2} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).ogDescription} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium">
+                <input type="checkbox" checked={form.robotsIndex} onChange={(e) => setForm({ ...form, robotsIndex: e.target.checked })} className="h-4 w-4 accent-primary" />
+                Allow indexing
+              </label>
+              <label className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium">
+                <input type="checkbox" checked={form.robotsFollow} onChange={(e) => setForm({ ...form, robotsFollow: e.target.checked })} className="h-4 w-4 accent-primary" />
+                Follow links
+              </label>
+            </div>
+          </div>
+
+          <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
+            <ImagePlus className="h-5 w-5" />
+            {image ? image.name : "Upload product image"}
+            <input type="file" accept="image/*" onChange={(e) => setImage(e.target.files?.[0] || null)} className="hidden" />
+          </label>
+
+          {editingProduct?.imageUrl && !image && (
+            <img src={assetUrl(editingProduct.imageUrl)} alt={form.imageAlt || form.name || editingProduct.name} className="mt-4 aspect-video w-full rounded-2xl object-cover" />
+          )}
+
+          <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+            <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="h-4 w-4 accent-primary" />
+            Show this product on the website
+          </label>
+
+          <button disabled={busy} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
+            {editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {busy ? "Saving..." : editingId ? "Save changes" : "Add product"}
+          </button>
+        </form>
+
+        <div className="grid gap-4">
+          <div>
+            <h2 className="font-display text-2xl">Products</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{products.length} configured products</p>
+          </div>
+
+          {products.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+              No products yet.
+            </div>
+          ) : (
+            products.map((product) => (
+              <article key={product.id} className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]">
+                <img src={assetUrl(product.imageUrl)} alt={product.imageAlt || generatedImageAlt(product.name, product.category)} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-caramel">{product.category}</span>
+                    {product.isActive === false ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="h-3.5 w-3.5" /> Hidden</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3.5 w-3.5" /> Live</span>
+                    )}
+                  </div>
+                  <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">AED {product.price.toFixed(2)}{product.originalPrice ? ` / old AED ${product.originalPrice.toFixed(2)}` : ""}</p>
+                </div>
+                <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
+                  <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
+                    <Edit3 className="h-4 w-4" /> Edit
+                  </button>
+                  <button onClick={() => deleteProduct(product.id)} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderLocationsTab() {
+    return (
+      <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
+        <form onSubmit={saveDeliveryLocation} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-2xl">Delivery locations</h2>
+              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Customer checkout rates
+              </p>
+            </div>
+            {editingLocationId && (
+              <button type="button" onClick={resetLocationForm} className="text-sm text-primary">
+                New
+              </button>
+            )}
+          </div>
+
+          <label className="mt-5 block text-sm font-medium">Location name</label>
+          <input
+            required
+            value={locationForm.name}
+            onChange={(e) => setLocationForm({ ...locationForm, name: e.target.value })}
+            placeholder="Dubai"
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
+
+          <label className="mt-4 block text-sm font-medium">Charge AED</label>
+          <input
+            required
+            min="0"
+            step="0.01"
+            type="number"
+            value={locationForm.charge}
+            onChange={(e) => setLocationForm({ ...locationForm, charge: e.target.value })}
+            placeholder="25.00"
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
+
+          <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={locationForm.isActive}
+              onChange={(e) => setLocationForm({ ...locationForm, isActive: e.target.checked })}
+              className="h-4 w-4 accent-primary"
+            />
+            Show at checkout
+          </label>
+
+          <button disabled={locationBusy} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
+            {editingLocationId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {locationBusy ? "Saving..." : editingLocationId ? "Save location" : "Add location"}
+          </button>
+        </form>
+
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-secondary text-primary">
+                <MapPin className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="font-display text-2xl">Locations</h2>
+                <p className="text-sm text-muted-foreground">{deliveryLocations.length} configured</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadDeliveryLocations()}
+              disabled={locationsLoading}
+              className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
+            >
+              {locationsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Refresh
+            </button>
+          </div>
+
+          {locationsLoading && deliveryLocations.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              Loading delivery locations...
+            </div>
+          ) : deliveryLocations.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              No delivery locations yet.
+            </div>
+          ) : (
+            <div className="mt-5 divide-y divide-border overflow-hidden rounded-2xl border border-border">
+              {deliveryLocations.map((location) => {
+                const active = location.isActive !== false;
+                const rowBusy = locationBusyId === location.id;
+
+                return (
+                  <article key={location.id} className="grid gap-3 bg-background/60 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-display text-xl leading-tight">{location.name}</h3>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-widest ${active ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}>
+                          {active ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                          {active ? "Live" : "Hidden"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">AED {Number(location.charge).toFixed(2)}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleDeliveryLocation(location)}
+                        disabled={rowBusy}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
+                      >
+                        {rowBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {active ? "Hide" : "Show"}
+                      </button>
+                      <button onClick={() => startEditLocation(location)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
+                        <Edit3 className="h-4 w-4" /> Edit
+                      </button>
+                      <button onClick={() => deleteDeliveryLocation(location.id)} disabled={rowBusy} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60">
+                        <Trash2 className="h-4 w-4" /> Delete
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+    );
   }
 
   if (!token) {
@@ -384,7 +1225,7 @@ export default function App() {
       <main className="grid min-h-screen place-items-center bg-background px-4">
         <form onSubmit={login} className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-elegant">
           <h1 className="font-display text-3xl">Admin login</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Manage Zekra Sweets products and images.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Manage Zekra Sweets products, orders, and delivery locations.</p>
           <label className="mt-6 block text-sm font-medium">Username</label>
           <input value={username} onChange={(e) => setUsername(e.target.value)} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
           <label className="mt-4 block text-sm font-medium">Password</label>
@@ -397,6 +1238,12 @@ export default function App() {
       </main>
     );
   }
+
+  const tabs = [
+    { id: "orders" as const, label: "Orders", count: orders.length, icon: ClipboardList },
+    { id: "products" as const, label: "Products", count: products.length, icon: ShoppingBag },
+    { id: "locations" as const, label: "Delivery", count: deliveryLocations.length, icon: MapPin },
+  ];
 
   return (
     <main className="min-h-screen bg-background px-4 py-8 sm:px-6">
@@ -411,254 +1258,49 @@ export default function App() {
           </button>
         </div>
 
+        <nav className="mt-6 flex flex-wrap gap-2 rounded-3xl border border-border bg-card p-2 shadow-glass" aria-label="Admin sections">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`inline-flex min-h-12 items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition ${activeTabClass(activeTab === tab.id)}`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{tab.label}</span>
+                <span className="rounded-lg bg-card/70 px-2 py-0.5 text-xs text-cocoa">{tab.count}</span>
+              </button>
+            );
+          })}
+        </nav>
+
         {message && <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-3 text-sm">{message}</div>}
 
-        <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
-          <form onSubmit={saveDeliveryLocation} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="font-display text-2xl">Delivery locations</h2>
-                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                  Customer checkout rates
-                </p>
-              </div>
-              {editingLocationId && (
-                <button type="button" onClick={resetLocationForm} className="text-sm text-primary">
-                  New
-                </button>
-              )}
-            </div>
-
-            <label className="mt-5 block text-sm font-medium">Location name</label>
-            <input
-              required
-              value={locationForm.name}
-              onChange={(e) => setLocationForm({ ...locationForm, name: e.target.value })}
-              placeholder="Dubai"
-              className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
-            />
-
-            <label className="mt-4 block text-sm font-medium">Charge AED</label>
-            <input
-              required
-              min="0"
-              step="0.01"
-              type="number"
-              value={locationForm.charge}
-              onChange={(e) => setLocationForm({ ...locationForm, charge: e.target.value })}
-              placeholder="25.00"
-              className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
-            />
-
-            <label className="mt-4 flex items-center gap-3 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={locationForm.isActive}
-                onChange={(e) => setLocationForm({ ...locationForm, isActive: e.target.checked })}
-                className="h-4 w-4 accent-primary"
-              />
-              Show at checkout
-            </label>
-
-            <button disabled={locationBusy} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
-              {editingLocationId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-              {locationBusy ? "Saving..." : editingLocationId ? "Save location" : "Add location"}
-            </button>
-          </form>
-
-          <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-secondary text-primary">
-                  <MapPin className="h-5 w-5" />
-                </span>
-                <div>
-                  <h2 className="font-display text-2xl">Locations</h2>
-                  <p className="text-sm text-muted-foreground">{deliveryLocations.length} configured</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => loadDeliveryLocations()}
-                disabled={locationsLoading}
-                className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
-              >
-                {locationsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Refresh
-              </button>
-            </div>
-
-            {locationsLoading && deliveryLocations.length === 0 ? (
-              <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                Loading delivery locations...
-              </div>
-            ) : deliveryLocations.length === 0 ? (
-              <div className="mt-5 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                No delivery locations yet.
-              </div>
-            ) : (
-              <div className="mt-5 divide-y divide-border overflow-hidden rounded-2xl border border-border">
-                {deliveryLocations.map((location) => {
-                  const active = location.isActive !== false;
-                  const rowBusy = locationBusyId === location.id;
-
-                  return (
-                    <article key={location.id} className="grid gap-3 bg-background/60 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-display text-xl leading-tight">{location.name}</h3>
-                          <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-widest ${active ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}>
-                            {active ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                            {active ? "Live" : "Hidden"}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">AED {Number(location.charge).toFixed(2)}</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleDeliveryLocation(location)}
-                          disabled={rowBusy}
-                          className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
-                        >
-                          {rowBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          {active ? "Hide" : "Show"}
-                        </button>
-                        <button onClick={() => startEditLocation(location)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
-                          <Edit3 className="h-4 w-4" /> Edit
-                        </button>
-                        <button onClick={() => deleteDeliveryLocation(location.id)} disabled={rowBusy} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60">
-                          <Trash2 className="h-4 w-4" /> Delete
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
-          <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-2xl">{editingId ? "Edit product" : "Add product"}</h2>
-              {editingId && (
-                <button type="button" onClick={resetProductForm} className="text-sm text-primary">
-                  New product
-                </button>
-              )}
-            </div>
-
-            <label className="mt-5 block text-sm font-medium">Product name</label>
-            <input required value={form.name} onChange={(e) => updateProductIdentity({ name: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium">Category</label>
-                <select value={form.category} onChange={(e) => updateProductIdentity({ category: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary">
-                  <option>Cookies</option>
-                  <option>Sweets</option>
-                  <option>Rusk</option>
-                  <option>Puff</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Tag</label>
-                <input value={form.tag} placeholder="Offer, Fresh, New" onChange={(e) => setForm({ ...form, tag: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium">Price AED</label>
-                <input required type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Old price</label>
-                <input type="number" step="0.01" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-              </div>
-            </div>
-
-            <label className="mt-4 block text-sm font-medium">Description</label>
-            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-
-            <div className="mt-4 rounded-2xl border border-border bg-background/60 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="font-display text-xl">SEO and image text</h3>
-                <button type="button" onClick={regenerateSeoFields} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold text-primary hover:bg-secondary">
-                  <RefreshCw className="h-3.5 w-3.5" /> Auto-fill SEO
-                </button>
-              </div>
-
-              <label className="mt-4 block text-sm font-medium">URL slug</label>
-              <input value={form.urlSlug} onChange={(e) => updateSeoField("urlSlug", e.target.value)} placeholder="cookies-premium-almond-cookies" className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-              <label className="mt-4 block text-sm font-medium">Meta title</label>
-              <input value={form.metaTitle} onChange={(e) => updateSeoField("metaTitle", e.target.value)} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-              <label className="mt-4 block text-sm font-medium">Meta description</label>
-              <textarea value={form.metaDescription} onChange={(e) => updateSeoField("metaDescription", e.target.value)} rows={2} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-              <label className="mt-4 block text-sm font-medium">Image alt text</label>
-              <input value={form.imageAlt} onChange={(e) => updateSeoField("imageAlt", e.target.value)} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-            </div>
-
-            <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
-              <ImagePlus className="h-5 w-5" />
-              {image ? image.name : "Upload product image"}
-              <input type="file" accept="image/*" onChange={(e) => setImage(e.target.files?.[0] || null)} className="hidden" />
-            </label>
-
-            {editingProduct?.imageUrl && !image && (
-              <img src={assetUrl(editingProduct.imageUrl)} alt={editingProduct.imageAlt || editingProduct.name} className="mt-4 aspect-video w-full rounded-2xl object-cover" />
-            )}
-
-            <label className="mt-4 flex items-center gap-3 text-sm font-medium">
-              <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="h-4 w-4 accent-primary" />
-              Show this product on the website
-            </label>
-
-            <button disabled={busy} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
-              {editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-              {busy ? "Saving..." : editingId ? "Save changes" : "Add product"}
-            </button>
-          </form>
-
-          <div className="grid gap-4">
-            {products.map((product) => (
-              <article key={product.id} className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]">
-                <img src={assetUrl(product.imageUrl)} alt={product.imageAlt || product.name} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-caramel">{product.category}</span>
-                    {product.isActive === false ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="h-3.5 w-3.5" /> Hidden</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3.5 w-3.5" /> Live</span>
-                    )}
-                  </div>
-                  <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">AED {product.price.toFixed(2)}{product.originalPrice ? ` / old AED ${product.originalPrice.toFixed(2)}` : ""}</p>
-                  {product.urlSlug && (
-                    <p title={`/${product.urlSlug}`} className="mt-1 max-w-full truncate font-mono text-xs text-muted-foreground">
-                      /{product.urlSlug}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
-                  <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
-                    <Edit3 className="h-4 w-4" /> Edit
-                  </button>
-                  <button onClick={() => deleteProduct(product.id)} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10">
-                    <Trash2 className="h-4 w-4" /> Delete
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+        {activeTab === "orders" && renderOrdersTab()}
+        {activeTab === "products" && renderProductsTab()}
+        {activeTab === "locations" && renderLocationsTab()}
       </div>
     </main>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 rounded-xl bg-card/70 px-3 py-2 sm:grid-cols-[96px_1fr]">
+      <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words font-semibold">{value}</dd>
+    </div>
+  );
+}
+
+function TotalRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between gap-3 ${strong ? "font-display text-xl" : "text-sm"}`}>
+      <span className={strong ? "font-bold" : "text-muted-foreground"}>{label}</span>
+      <span className="font-semibold">{value}</span>
+    </div>
   );
 }
