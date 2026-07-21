@@ -19,6 +19,7 @@ import {
   ShoppingBag,
   Trash2,
   Truck,
+  X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
@@ -146,6 +147,7 @@ export default function App() {
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] = useState<OrderFilter>("all");
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationBusyId, setLocationBusyId] = useState<string | null>(null);
@@ -188,6 +190,22 @@ export default function App() {
 
     return filteredOrders[0] || null;
   }, [filteredOrders, selectedOrderId]);
+
+  const detailOrder = useMemo(
+    () => (detailOrderId ? orders.find((order) => order.id === detailOrderId) || null : null),
+    [detailOrderId, orders],
+  );
+
+  useEffect(() => {
+    if (!detailOrderId) return;
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setDetailOrderId(null);
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [detailOrderId]);
 
   const orderMetrics = useMemo(() => {
     const openOrders = orders.filter((order) => order.status !== "completed" && order.status !== "cancelled").length;
@@ -455,6 +473,109 @@ export default function App() {
     }
   }
 
+  function openOrderDetails(order: AdminOrder) {
+    setSelectedOrderId(order.id);
+    setDetailOrderId(order.id);
+  }
+
+  function renderOrderDetails(order: AdminOrder) {
+    return (
+      <div>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <span className={`inline-flex rounded-xl border px-3 py-1 text-xs font-semibold ${statusTone(order.status)}`}>
+              {orderStatusLabels[order.status]}
+            </span>
+            <h3 className="mt-3 break-all font-mono text-sm font-semibold">{order.id}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+          </div>
+          <button type="button" onClick={() => downloadOrderPdf(order)} className={actionButtonClass()}>
+            <Download className="h-4 w-4" />
+            PDF
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          {orderStatuses.map((status) => (
+            <button
+              key={status}
+              type="button"
+              disabled={orderBusyId === order.id}
+              onClick={() => changeOrderStatus(order, status)}
+              className={`rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-60 ${
+                order.status === status
+                  ? "border-primary bg-secondary text-primary"
+                  : "border-border bg-card hover:bg-secondary"
+              }`}
+            >
+              {orderStatusLabels[status]}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-5 space-y-5 text-sm">
+          <section>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Customer</h4>
+            <dl className="mt-3 grid gap-3">
+              <DetailRow label="Name" value={order.customer.name || "-"} />
+              <DetailRow label="Phone" value={order.customer.phone || "-"} />
+              {order.customer.email && <DetailRow label="Email" value={order.customer.email} />}
+            </dl>
+          </section>
+
+          <section>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Fulfillment</h4>
+            <dl className="mt-3 grid gap-3">
+              <DetailRow label="Type" value={fulfillmentMode(order) === "pickup" ? "Pickup" : "Delivery"} />
+              <DetailRow label="Location" value={order.fulfillment.locationName || "-"} />
+              <DetailRow label="Address" value={order.fulfillment.address || "-"} />
+              <DetailRow label="Date" value={order.fulfillment.preferredDate || "-"} />
+              <DetailRow label="Time" value={order.fulfillment.preferredTime || "-"} />
+              {order.notes && <DetailRow label="Notes" value={order.notes} />}
+            </dl>
+          </section>
+
+          <section>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Items</h4>
+            <div className="mt-3 overflow-hidden rounded-xl border border-border">
+              <div className="hidden grid-cols-[minmax(0,1fr)_46px_82px] gap-2 bg-muted/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:grid">
+                <span>Item</span>
+                <span>Qty</span>
+                <span>Total</span>
+              </div>
+              <div className="divide-y divide-border">
+                {order.items.map((item) => (
+                  <div key={`${order.id}-${item.productId || item.id || item.name}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
+                    <div className="min-w-0">
+                      <p className="break-words font-semibold">{item.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{formatMoney(item.unitPrice)} each</p>
+                    </div>
+                    <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
+                      <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Qty</span>
+                      {item.quantity}
+                    </p>
+                    <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
+                      <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Line</span>
+                      {formatMoney(Number(item.lineTotal ?? item.quantity * item.unitPrice))}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="border-t border-border pt-4">
+            <div className="space-y-2">
+              <TotalRow label="Subtotal" value={formatMoney(orderSubtotal(order))} />
+              <TotalRow label="Delivery" value={formatMoney(orderDeliveryFee(order))} />
+              <TotalRow label="Total" value={formatMoney(orderTotal(order))} strong />
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   function logout() {
     localStorage.removeItem("adminToken");
     setToken("");
@@ -462,6 +583,7 @@ export default function App() {
     setProducts([]);
     setDeliveryLocations([]);
     setSelectedOrderId(null);
+    setDetailOrderId(null);
     setActiveTab("orders");
     resetProductForm();
     resetLocationForm();
@@ -621,7 +743,7 @@ export default function App() {
                         <div className="flex min-w-0 flex-wrap items-center gap-2 lg:flex-col lg:items-stretch lg:gap-1.5">
                           <button
                             type="button"
-                            onClick={() => setSelectedOrderId(order.id)}
+                            onClick={() => openOrderDetails(order)}
                             className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold transition hover:bg-card lg:w-full lg:flex-none"
                           >
                             <FileText className="h-3.5 w-3.5" />
@@ -1051,6 +1173,40 @@ export default function App() {
         {activeTab === "orders" && renderOrdersTab()}
         {activeTab === "products" && renderProductsTab()}
         {activeTab === "locations" && renderLocationsTab()}
+
+        {detailOrder && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-details-title"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setDetailOrderId(null);
+            }}
+          >
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-border bg-background p-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-caramel">Order details</p>
+                  <h2 id="order-details-title" className="mt-2 font-display text-2xl">
+                    {detailOrder.customer.name || detailOrder.id}
+                  </h2>
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{detailOrder.id}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetailOrderId(null)}
+                  aria-label="Close order details"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card transition hover:bg-secondary"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-5">{renderOrderDetails(detailOrder)}</div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
