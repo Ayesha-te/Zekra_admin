@@ -54,33 +54,10 @@ const emptyForm = {
   originalPrice: "",
   tag: "",
   description: "",
-  urlSlug: "",
-  metaTitle: "",
-  metaDescription: "",
-  imageAlt: "",
-  primaryKeyword: "",
-  secondaryKeywords: "",
-  canonicalUrl: "",
-  ogTitle: "",
-  ogDescription: "",
-  ogImage: "",
-  robotsIndex: true,
-  robotsFollow: true,
   isActive: true,
 };
 
 type ProductForm = typeof emptyForm;
-type SeoField =
-  | "urlSlug"
-  | "metaTitle"
-  | "metaDescription"
-  | "imageAlt"
-  | "primaryKeyword"
-  | "secondaryKeywords"
-  | "canonicalUrl"
-  | "ogTitle"
-  | "ogDescription"
-  | "ogImage";
 type AdminTab = "orders" | "products" | "locations";
 type OrderFilter = OrderStatus | "all";
 
@@ -92,104 +69,13 @@ const emptyLocationForm = {
 
 type LocationForm = typeof emptyLocationForm;
 
-function normalizeSlug(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function generateSeoFields(
-  nameValue: string,
-  categoryValue: string,
-  descriptionValue = "",
-  imageUrlValue = "",
-): Pick<ProductForm, SeoField> {
-  const name = nameValue.trim();
+function generatedImageAlt(nameValue: string, categoryValue: string) {
+  const displayName = nameValue.trim().replace(/\s*\|\s*/g, " - ");
   const category = categoryValue.trim();
-  const displayName = name.replace(/\s*\|\s*/g, " - ");
   const lowerName = displayName.toLowerCase();
   const lowerCategory = category.toLowerCase();
-  const slug = normalizeSlug(displayName);
-  const description = descriptionValue.trim().replace(/\s+/g, " ");
-  const metaDescription =
-    description ||
-    `Fresh handmade ${lowerCategory || "bakery treat"} from Zekra Sweets.`;
-
-  if (!name) {
-    return {
-      urlSlug: "",
-      metaTitle: "",
-      metaDescription: "",
-      imageAlt: "",
-      primaryKeyword: "",
-      secondaryKeywords: "",
-      canonicalUrl: "",
-      ogTitle: "",
-      ogDescription: "",
-      ogImage: "",
-    };
-  }
-
-  const title =
-    category && !lowerName.includes(lowerCategory)
-      ? `${displayName} - ${category} | Zekra Sweets`
-      : `Buy ${displayName} Online | Zekra Sweets`;
-  const descriptionText = `Shop ${displayName} from Zekra Sweets. ${metaDescription} Order online today.`;
-  const secondaryKeywords = [
-    lowerName,
-    lowerCategory ? `${lowerCategory} online` : "",
-    lowerCategory ? `buy ${lowerCategory} online` : "",
-    `zekra sweets ${lowerName}`,
-  ]
-    .filter(Boolean)
-    .join(", ");
-
-  return {
-    urlSlug: slug,
-    metaTitle: title,
-    metaDescription: descriptionText,
-    imageAlt: lowerCategory && !lowerName.includes(lowerCategory) ? `${displayName} - ${lowerCategory}` : displayName,
-    primaryKeyword: lowerName,
-    secondaryKeywords,
-    canonicalUrl: `https://zekrasweets.com/products/${slug}`,
-    ogTitle: title,
-    ogDescription: descriptionText,
-    ogImage: imageUrlValue,
-  };
-}
-
-function applyMissingSeo(nextForm: ProductForm): ProductForm {
-  const generated = generateSeoFields(
-    nextForm.name,
-    nextForm.category,
-    nextForm.description,
-    nextForm.ogImage,
-  );
-  const nextSeoFields = Object.fromEntries(
-    (Object.keys(generated) as SeoField[]).map((field) => [
-      field,
-      String(nextForm[field] || "").trim() ? nextForm[field] : generated[field],
-    ]),
-  ) as Pick<ProductForm, SeoField>;
-
-  return {
-    ...nextForm,
-    ...nextSeoFields,
-  };
-}
-
-function generatedImageAlt(name: string, category: string) {
-  return generateSeoFields(name, category).imageAlt || name;
-}
-
-function seoFieldState(value: string) {
-  return value.trim() ? "Manual" : "Auto";
-}
-
-function seoPreviewValue(form: ProductForm, field: SeoField) {
-  return form[field] || generateSeoFields(form.name, form.category, form.description, form.ogImage)[field];
+  if (!displayName) return category || "Zekra Sweets product";
+  return lowerCategory && !lowerName.includes(lowerCategory) ? `${displayName} - ${category}` : displayName;
 }
 
 function statusTone(status: OrderStatus) {
@@ -433,20 +319,6 @@ export default function App() {
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
       tag: product.tag || "",
       description: product.description || "",
-      urlSlug: product.urlSlug || "",
-      metaTitle: product.metaTitle || "",
-      metaDescription: product.metaDescription || "",
-      imageAlt: product.imageAlt || "",
-      primaryKeyword: product.primaryKeyword || "",
-      secondaryKeywords: Array.isArray(product.secondaryKeywords)
-        ? product.secondaryKeywords.join(", ")
-        : "",
-      canonicalUrl: product.canonicalUrl || "",
-      ogTitle: product.ogTitle || "",
-      ogDescription: product.ogDescription || "",
-      ogImage: product.ogImage || "",
-      robotsIndex: product.robotsIndex !== false,
-      robotsFollow: product.robotsFollow !== false,
       isActive: product.isActive !== false,
     };
 
@@ -464,23 +336,6 @@ export default function App() {
 
   function updateProductIdentity(updates: Partial<Pick<ProductForm, "name" | "category">>) {
     setForm((currentForm) => ({ ...currentForm, ...updates }));
-  }
-
-  function fillMissingSeoSuggestions() {
-    setForm((currentForm) => applyMissingSeo(currentForm));
-  }
-
-  function regenerateSeoSuggestions() {
-    if (!confirm("Replace all SEO fields with generated suggestions?")) return;
-    setForm((currentForm) => ({
-      ...currentForm,
-      ...generateSeoFields(
-        currentForm.name,
-        currentForm.category,
-        currentForm.description,
-        currentForm.ogImage,
-      ),
-    }));
   }
 
   async function saveDeliveryLocation(event: FormEvent) {
@@ -941,92 +796,6 @@ export default function App() {
           <label className="mt-4 block text-sm font-medium">Description</label>
           <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
 
-          <div className="mt-4 rounded-2xl border border-border bg-background/60 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="font-display text-xl">SEO</h3>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Empty fields are generated automatically. Existing values are kept when you save.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={fillMissingSeoSuggestions} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold text-primary hover:bg-secondary">
-                  <RefreshCw className="h-3.5 w-3.5" /> Fill missing
-                </button>
-                <button type="button" onClick={regenerateSeoSuggestions} className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-secondary px-3 py-2 text-xs font-semibold text-primary hover:bg-card">
-                  <RefreshCw className="h-3.5 w-3.5" /> Regenerate
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-xl border border-border bg-card p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Search preview</div>
-              <div className="mt-2 text-sm font-semibold text-primary">{seoPreviewValue(form, "metaTitle") || "SEO title"}</div>
-              <div className="mt-1 break-all font-mono text-xs text-caramel">{seoPreviewValue(form, "canonicalUrl") || "https://zekrasweets.com/products/example"}</div>
-              <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{seoPreviewValue(form, "metaDescription") || "Meta description preview"}</div>
-            </div>
-
-            <label className="mt-4 block text-sm font-medium">
-              SEO title
-              <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.metaTitle)}</span>
-              <span className="float-right text-xs text-muted-foreground">{form.metaTitle.length}/60</span>
-            </label>
-            <input value={form.metaTitle} onChange={(e) => setForm({ ...form, metaTitle: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).metaTitle} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-            <label className="mt-4 block text-sm font-medium">
-              Meta description
-              <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.metaDescription)}</span>
-              <span className="float-right text-xs text-muted-foreground">{form.metaDescription.length}/160</span>
-            </label>
-            <textarea value={form.metaDescription} onChange={(e) => setForm({ ...form, metaDescription: e.target.value })} rows={2} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).metaDescription} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium">Slug <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.urlSlug)}</span></label>
-                <input value={form.urlSlug} onChange={(e) => setForm({ ...form, urlSlug: normalizeSlug(e.target.value) })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).urlSlug} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Primary keyword <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.primaryKeyword)}</span></label>
-                <input value={form.primaryKeyword} onChange={(e) => setForm({ ...form, primaryKeyword: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).primaryKeyword} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-              </div>
-            </div>
-
-            <label className="mt-4 block text-sm font-medium">Secondary keywords <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.secondaryKeywords)}</span></label>
-            <input value={form.secondaryKeywords} onChange={(e) => setForm({ ...form, secondaryKeywords: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).secondaryKeywords} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-            <p className="mt-1 text-xs text-muted-foreground">Comma-separated for internal optimisation only. No meta keywords tag is rendered.</p>
-
-            <label className="mt-4 block text-sm font-medium">Image alt text <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.imageAlt)}</span></label>
-            <input value={form.imageAlt} onChange={(e) => setForm({ ...form, imageAlt: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).imageAlt} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-            <label className="mt-4 block text-sm font-medium">Canonical URL <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.canonicalUrl)}</span></label>
-            <input value={form.canonicalUrl} onChange={(e) => setForm({ ...form, canonicalUrl: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).canonicalUrl} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium">OG title <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.ogTitle)}</span></label>
-                <input value={form.ogTitle} onChange={(e) => setForm({ ...form, ogTitle: e.target.value })} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).ogTitle} className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium">OG image URL <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.ogImage)}</span></label>
-                <input value={form.ogImage} onChange={(e) => setForm({ ...form, ogImage: e.target.value })} placeholder="/seed-products/example.jpg" className="mt-2 w-full rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-              </div>
-            </div>
-
-            <label className="mt-4 block text-sm font-medium">OG description <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary">{seoFieldState(form.ogDescription)}</span></label>
-            <textarea value={form.ogDescription} onChange={(e) => setForm({ ...form, ogDescription: e.target.value })} rows={2} placeholder={generateSeoFields(form.name, form.category, form.description, form.ogImage).ogDescription} className="mt-2 w-full resize-none rounded-xl border border-border bg-card px-4 py-3 outline-none focus:border-primary" />
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium">
-                <input type="checkbox" checked={form.robotsIndex} onChange={(e) => setForm({ ...form, robotsIndex: e.target.checked })} className="h-4 w-4 accent-primary" />
-                Allow indexing
-              </label>
-              <label className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium">
-                <input type="checkbox" checked={form.robotsFollow} onChange={(e) => setForm({ ...form, robotsFollow: e.target.checked })} className="h-4 w-4 accent-primary" />
-                Follow links
-              </label>
-            </div>
-          </div>
-
           <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
             <ImagePlus className="h-5 w-5" />
             {image ? image.name : "Upload product image"}
@@ -1034,7 +803,7 @@ export default function App() {
           </label>
 
           {editingProduct?.imageUrl && !image && (
-            <img src={assetUrl(editingProduct.imageUrl)} alt={form.imageAlt || form.name || editingProduct.name} className="mt-4 aspect-video w-full rounded-2xl object-cover" />
+            <img src={assetUrl(editingProduct.imageUrl)} alt={generatedImageAlt(form.name || editingProduct.name, form.category || editingProduct.category)} className="mt-4 aspect-video w-full rounded-2xl object-cover" />
           )}
 
           <label className="mt-4 flex items-center gap-3 text-sm font-medium">
