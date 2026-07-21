@@ -529,8 +529,6 @@ export default function App() {
               <DetailRow label="Type" value={fulfillmentMode(order) === "pickup" ? "Pickup" : "Delivery"} />
               <DetailRow label="Location" value={order.fulfillment.locationName || "-"} />
               <DetailRow label="Address" value={order.fulfillment.address || "-"} />
-              <DetailRow label="Date" value={order.fulfillment.preferredDate || "-"} />
-              <DetailRow label="Time" value={order.fulfillment.preferredTime || "-"} />
               {order.notes && <DetailRow label="Notes" value={order.notes} />}
             </dl>
           </section>
@@ -815,8 +813,6 @@ export default function App() {
                           <DetailRow label="Type" value={fulfillmentMode(activeOrder) === "pickup" ? "Pickup" : "Delivery"} />
                           <DetailRow label="Location" value={activeOrder.fulfillment.locationName || "-"} />
                           <DetailRow label="Address" value={activeOrder.fulfillment.address || "-"} />
-                          <DetailRow label="Date" value={activeOrder.fulfillment.preferredDate || "-"} />
-                          <DetailRow label="Time" value={activeOrder.fulfillment.preferredTime || "-"} />
                           {activeOrder.notes && <DetailRow label="Notes" value={activeOrder.notes} />}
                         </dl>
                       </section>
