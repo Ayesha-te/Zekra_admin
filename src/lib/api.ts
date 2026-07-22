@@ -2,6 +2,7 @@ export type Product = {
   id: string;
   name: string;
   imageUrl: string;
+  imageUrls?: string[];
   price: number;
   originalPrice?: number | null;
   tag?: string;

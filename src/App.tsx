@@ -81,6 +81,18 @@ function generatedImageAlt(nameValue: string, categoryValue: string) {
   return lowerCategory && !lowerName.includes(lowerCategory) ? `${displayName} - ${category}` : displayName;
 }
 
+function productImageUrls(product?: Pick<Product, "imageUrl" | "imageUrls"> | null) {
+  if (!product) return [];
+
+  return [
+    ...new Set(
+      [product.imageUrl, ...(product.imageUrls || [])]
+        .map((url) => url?.trim())
+        .filter((url): url is string => Boolean(url)),
+    ),
+  ];
+}
+
 function statusTone(status: OrderStatus) {
   switch (status) {
     case "new":
@@ -139,7 +151,9 @@ export default function App() {
   const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocationForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
-  const [image, setImage] = useState<File | null>(null);
+  const [images, setImages] = useState<File[]>([]);
+  const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -173,6 +187,15 @@ export default function App() {
     () => products.find((product) => product.id === editingId),
     [editingId, products],
   );
+
+  useEffect(() => {
+    const previewUrls = images.map((file) => URL.createObjectURL(file));
+    setImagePreviewUrls(previewUrls);
+
+    return () => {
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [images]);
 
   const filteredOrders = useMemo(() => {
     const query = orderSearch.trim().toLowerCase();
@@ -293,8 +316,9 @@ export default function App() {
 
     const payload = new FormData();
     Object.entries(form).forEach(([key, value]) => payload.append(key, String(value)));
-    if (editingProduct?.imageUrl) payload.append("imageUrl", editingProduct.imageUrl);
-    if (image) payload.append("image", image);
+    payload.append("imageUrls", JSON.stringify(existingImageUrls));
+    if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
+    images.forEach((file) => payload.append("images", file));
 
     try {
       await apiFetch<Product>(editingId ? `/api/admin/products/${editingId}` : "/api/admin/products", {
@@ -304,7 +328,7 @@ export default function App() {
       });
       resetProductForm();
       setEditingId(null);
-      setImage(null);
+      setImages([]);
       setMessage("Product saved.");
       await loadProducts();
     } catch (error) {
@@ -344,18 +368,34 @@ export default function App() {
 
     setEditingId(product.id);
     setForm(nextForm);
-    setImage(null);
+    setExistingImageUrls(productImageUrls(product));
+    setImages([]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function resetProductForm() {
     setEditingId(null);
     setForm(emptyForm);
-    setImage(null);
+    setExistingImageUrls([]);
+    setImages([]);
   }
 
   function updateProductIdentity(updates: Partial<Pick<ProductForm, "name" | "category">>) {
     setForm((currentForm) => ({ ...currentForm, ...updates }));
+  }
+
+  function handleImageSelection(files: FileList | null) {
+    const nextFiles = Array.from(files || []);
+    if (nextFiles.length === 0) return;
+    setImages((currentImages) => [...currentImages, ...nextFiles]);
+  }
+
+  function removeExistingImage(url: string) {
+    setExistingImageUrls((currentUrls) => currentUrls.filter((currentUrl) => currentUrl !== url));
+  }
+
+  function removeSelectedImage(index: number) {
+    setImages((currentImages) => currentImages.filter((_, currentIndex) => currentIndex !== index));
   }
 
   async function saveDeliveryLocation(event: FormEvent) {
@@ -893,6 +933,21 @@ export default function App() {
   }
 
   function renderProductsTab() {
+    const galleryPreviews = [
+      ...existingImageUrls.map((url) => ({
+        key: `existing-${url}`,
+        src: assetUrl(url),
+        label: "Saved image",
+        onRemove: () => removeExistingImage(url),
+      })),
+      ...images.map((file, index) => ({
+        key: `selected-${file.name}-${index}`,
+        src: imagePreviewUrls[index] || "",
+        label: file.name,
+        onRemove: () => removeSelectedImage(index),
+      })),
+    ];
+
     return (
       <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
         <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
@@ -940,12 +995,44 @@ export default function App() {
 
           <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
             <ImagePlus className="h-5 w-5" />
-            {image ? image.name : "Upload product image"}
-            <input type="file" accept="image/*" onChange={(e) => setImage(e.target.files?.[0] || null)} className="hidden" />
+            {images.length > 0 ? `${images.length} new image${images.length === 1 ? "" : "s"} selected` : "Add product images"}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => {
+                handleImageSelection(e.target.files);
+                e.currentTarget.value = "";
+              }}
+              className="hidden"
+            />
           </label>
 
-          {editingProduct?.imageUrl && !image && (
-            <img src={assetUrl(editingProduct.imageUrl)} alt={generatedImageAlt(form.name || editingProduct.name, form.category || editingProduct.category)} className="mt-4 aspect-video w-full rounded-2xl object-cover" />
+          {galleryPreviews.length > 0 && (
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {galleryPreviews.map((preview, index) => (
+                <div key={preview.key} className="group relative overflow-hidden rounded-2xl border border-border bg-background">
+                  <img
+                    src={preview.src}
+                    alt={generatedImageAlt(form.name || editingProduct?.name || "", form.category || editingProduct?.category || "")}
+                    className="aspect-square w-full object-cover"
+                  />
+                  {index === 0 && (
+                    <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-primary-foreground">
+                      Primary
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={preview.onRemove}
+                    className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-background/90 text-foreground shadow-glass transition hover:bg-destructive hover:text-destructive-foreground"
+                    aria-label={`Remove ${preview.label}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
 
           <label className="mt-4 flex items-center gap-3 text-sm font-medium">
@@ -970,31 +1057,47 @@ export default function App() {
               No products yet.
             </div>
           ) : (
-            products.map((product) => (
-              <article key={product.id} className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]">
-                <img src={assetUrl(product.imageUrl)} alt={product.imageAlt || generatedImageAlt(product.name, product.category)} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-caramel">{product.category}</span>
-                    {product.isActive === false ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="h-3.5 w-3.5" /> Hidden</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3.5 w-3.5" /> Live</span>
-                    )}
+            products.map((product) => {
+              const productImages = productImageUrls(product);
+              const primaryImage = productImages[0] || product.imageUrl;
+
+              return (
+                <article key={product.id} className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]">
+                  {primaryImage ? (
+                    <img src={assetUrl(primaryImage)} alt={product.imageAlt || generatedImageAlt(product.name, product.category)} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
+                  ) : (
+                    <div className="grid aspect-square w-full place-items-center rounded-2xl bg-secondary text-primary sm:w-[140px]">
+                      <ImagePlus className="h-6 w-6" />
+                    </div>
+                  )}
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-caramel">{product.category}</span>
+                      {productImages.length > 1 && (
+                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                          {productImages.length} images
+                        </span>
+                      )}
+                      {product.isActive === false ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="h-3.5 w-3.5" /> Hidden</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3.5 w-3.5" /> Live</span>
+                      )}
+                    </div>
+                    <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">AED {product.price.toFixed(2)}{product.originalPrice ? ` / old AED ${product.originalPrice.toFixed(2)}` : ""}</p>
                   </div>
-                  <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">AED {product.price.toFixed(2)}{product.originalPrice ? ` / old AED ${product.originalPrice.toFixed(2)}` : ""}</p>
-                </div>
-                <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
-                  <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
-                    <Edit3 className="h-4 w-4" /> Edit
-                  </button>
-                  <button onClick={() => deleteProduct(product.id)} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10">
-                    <Trash2 className="h-4 w-4" /> Delete
-                  </button>
-                </div>
-              </article>
-            ))
+                  <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
+                    <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
+                      <Edit3 className="h-4 w-4" /> Edit
+                    </button>
+                    <button onClick={() => deleteProduct(product.id)} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10">
+                      <Trash2 className="h-4 w-4" /> Delete
+                    </button>
+                  </div>
+                </article>
+              );
+            })
           )}
         </div>
       </section>
