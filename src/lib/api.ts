@@ -3,6 +3,7 @@ export type Product = {
   name: string;
   imageUrl: string;
   imageUrls?: string[];
+  sizes?: ProductSizeOption[];
   price: number;
   originalPrice?: number | null;
   tag?: string;
@@ -23,6 +24,13 @@ export type Product = {
   isActive?: boolean;
   updatedAt?: string;
   category: "Cookies" | "Sweets" | "Rusk" | "Puff" | string;
+};
+
+export type ProductSizeOption = {
+  id?: string;
+  label: string;
+  price: number;
+  originalPrice?: number | null;
 };
 
 export type DeliveryLocation = {

@@ -31,6 +31,7 @@ import {
   type DeliveryLocation,
   type OrderStatus,
   type Product,
+  type ProductSizeOption,
 } from "./lib/api";
 import {
   downloadOrderPdf,
@@ -61,6 +62,12 @@ const emptyForm = {
 };
 
 type ProductForm = typeof emptyForm;
+type ProductSizeForm = {
+  id?: string;
+  label: string;
+  price: string;
+  originalPrice: string;
+};
 type AdminTab = "orders" | "products" | "locations";
 type OrderFilter = OrderStatus | "all";
 
@@ -91,6 +98,47 @@ function productImageUrls(product?: Pick<Product, "imageUrl" | "imageUrls"> | nu
         .filter((url): url is string => Boolean(url)),
     ),
   ];
+}
+
+function productSizes(product?: Pick<Product, "sizes" | "price" | "originalPrice"> | null) {
+  const sizes = product?.sizes || [];
+  return sizes.filter((size) => size.label && Number.isFinite(Number(size.price)));
+}
+
+function productPriceSummary(product: Product) {
+  const sizes = productSizes(product);
+  if (sizes.length === 0) {
+    return `AED ${product.price.toFixed(2)}${product.originalPrice ? ` / old AED ${product.originalPrice.toFixed(2)}` : ""}`;
+  }
+
+  return sizes
+    .map(
+      (size) =>
+        `${size.label}: AED ${Number(size.price).toFixed(2)}${
+          size.originalPrice ? ` / old AED ${Number(size.originalPrice).toFixed(2)}` : ""
+        }`,
+    )
+    .join(" • ");
+}
+
+function sizeFormsFromProduct(product: Product): ProductSizeForm[] {
+  return productSizes(product).map((size) => ({
+    id: size.id,
+    label: size.label,
+    price: String(size.price),
+    originalPrice: size.originalPrice ? String(size.originalPrice) : "",
+  }));
+}
+
+function sizePayload(sizes: ProductSizeForm[]): ProductSizeOption[] {
+  return sizes
+    .filter((size) => size.label.trim() || size.price.trim() || size.originalPrice.trim())
+    .map((size) => ({
+      id: size.id,
+      label: size.label.trim(),
+      price: Number(size.price),
+      originalPrice: size.originalPrice.trim() ? Number(size.originalPrice) : null,
+    }))
 }
 
 function statusTone(status: OrderStatus) {
@@ -148,6 +196,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [deliveryLocations, setDeliveryLocations] = useState<DeliveryLocation[]>([]);
   const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [productSizeForms, setProductSizeForms] = useState<ProductSizeForm[]>([]);
   const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocationForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
@@ -316,6 +365,7 @@ export default function App() {
 
     const payload = new FormData();
     Object.entries(form).forEach(([key, value]) => payload.append(key, String(value)));
+    payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
     payload.append("imageUrls", JSON.stringify(existingImageUrls));
     if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
     images.forEach((file) => payload.append("images", file));
@@ -368,6 +418,7 @@ export default function App() {
 
     setEditingId(product.id);
     setForm(nextForm);
+    setProductSizeForms(sizeFormsFromProduct(product));
     setExistingImageUrls(productImageUrls(product));
     setImages([]);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -376,6 +427,7 @@ export default function App() {
   function resetProductForm() {
     setEditingId(null);
     setForm(emptyForm);
+    setProductSizeForms([]);
     setExistingImageUrls([]);
     setImages([]);
   }
@@ -396,6 +448,25 @@ export default function App() {
 
   function removeSelectedImage(index: number) {
     setImages((currentImages) => currentImages.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  function addProductSize() {
+    setProductSizeForms((currentSizes) => [
+      ...currentSizes,
+      { label: "", price: "", originalPrice: "" },
+    ]);
+  }
+
+  function updateProductSize(index: number, updates: Partial<ProductSizeForm>) {
+    setProductSizeForms((currentSizes) =>
+      currentSizes.map((size, currentIndex) =>
+        currentIndex === index ? { ...size, ...updates } : size,
+      ),
+    );
+  }
+
+  function removeProductSize(index: number) {
+    setProductSizeForms((currentSizes) => currentSizes.filter((_, currentIndex) => currentIndex !== index));
   }
 
   async function saveDeliveryLocation(event: FormEvent) {
@@ -981,13 +1052,70 @@ export default function App() {
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium">Price AED</label>
-              <input required type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+              <label className="block text-sm font-medium">Fallback price AED</label>
+              <input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
             </div>
             <div>
-              <label className="block text-sm font-medium">Old price</label>
+              <label className="block text-sm font-medium">Fallback old price</label>
               <input type="number" step="0.01" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
             </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-display text-xl">Size prices</h3>
+                <p className="mt-1 text-xs text-muted-foreground">Add sizes such as 250g, 500g, 1kg, box, or tray.</p>
+              </div>
+              <button type="button" onClick={addProductSize} className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary">
+                <Plus className="h-3.5 w-3.5" /> Add size
+              </button>
+            </div>
+
+            {productSizeForms.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+                No size prices yet. The fallback price will be used.
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3">
+                {productSizeForms.map((size, index) => (
+                  <div key={`${size.id || "new"}-${index}`} className="grid gap-2 rounded-xl border border-border bg-card p-3">
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px_110px_40px]">
+                      <input
+                        value={size.label}
+                        onChange={(e) => updateProductSize(index, { label: e.target.value })}
+                        placeholder="Size label"
+                        className="rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={size.price}
+                        onChange={(e) => updateProductSize(index, { price: e.target.value })}
+                        placeholder="AED"
+                        className="rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={size.originalPrice}
+                        onChange={(e) => updateProductSize(index, { originalPrice: e.target.value })}
+                        placeholder="Old AED"
+                        className="rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeProductSize(index)}
+                        className="grid h-10 w-10 place-items-center rounded-xl border border-destructive/30 text-destructive transition hover:bg-destructive/10"
+                        aria-label={`Remove size ${size.label || index + 1}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <label className="mt-4 block text-sm font-medium">Description</label>
@@ -1085,7 +1213,7 @@ export default function App() {
                       )}
                     </div>
                     <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">AED {product.price.toFixed(2)}{product.originalPrice ? ` / old AED ${product.originalPrice.toFixed(2)}` : ""}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{productPriceSummary(product)}</p>
                   </div>
                   <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
                     <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
