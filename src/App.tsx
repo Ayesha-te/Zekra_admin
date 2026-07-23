@@ -393,10 +393,13 @@ export default function App() {
     setBusy(true);
     setMessage("");
     try {
-      await apiFetch(`/api/admin/products/${id}`, {
+      await apiFetch(`/api/admin/products/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
+      setProducts((currentProducts) => currentProducts.filter((product) => product.id !== id));
+      if (editingId === id) resetProductForm();
+      setMessage("Product deleted.");
       await loadProducts();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not delete product");
