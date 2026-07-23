@@ -94,7 +94,10 @@ export function assetUrl(path: string) {
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}) {
-  const response = await fetch(`${API_BASE}${path}`, options);
+  const response = await fetch(`${API_BASE}${freshApiPath(path, options)}`, {
+    cache: "no-store",
+    ...options,
+  });
   const contentType = response.headers.get("content-type") || "";
   const body = contentType.includes("application/json") ? await response.json() : null;
 
@@ -103,6 +106,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}) {
   }
 
   return body as T;
+}
+
+function freshApiPath(path: string, options: RequestInit) {
+  const method = String(options.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return path;
+  return `${path}${path.includes("?") ? "&" : "?"}_=${Date.now()}`;
 }
 
 export function fetchAdminOrders(token: string) {
