@@ -25,6 +25,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   apiFetch,
   assetUrl,
+  productImageError,
   fetchAdminOrders,
   updateAdminOrderStatus,
   type AdminOrder,
@@ -1145,6 +1146,7 @@ export default function App() {
                 <div key={preview.key} className="group relative overflow-hidden rounded-2xl border border-border bg-background">
                   <img
                     src={preview.src}
+                    onError={productImageError}
                     alt={generatedImageAlt(form.name || editingProduct?.name || "", form.category || editingProduct?.category || "")}
                     className="aspect-square w-full object-cover"
                   />
@@ -1195,7 +1197,7 @@ export default function App() {
               return (
                 <article key={product.id} className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]">
                   {primaryImage ? (
-                    <img src={assetUrl(primaryImage)} alt={product.imageAlt || generatedImageAlt(product.name, product.category)} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
+                    <img src={assetUrl(primaryImage)} onError={productImageError} alt={product.imageAlt || generatedImageAlt(product.name, product.category)} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
                   ) : (
                     <div className="grid aspect-square w-full place-items-center rounded-2xl bg-secondary text-primary sm:w-[140px]">
                       <ImagePlus className="h-6 w-6" />
