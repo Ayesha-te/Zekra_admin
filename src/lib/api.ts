@@ -76,6 +76,8 @@ export type AdminOrder = {
     id?: string;
     name: string;
     category?: string;
+    sizeId?: string;
+    sizeLabel?: string;
     imageUrl?: string;
     quantity: number;
     unitPrice: number;

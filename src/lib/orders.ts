@@ -169,7 +169,7 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     order.items
       .map(
         (item) =>
-          `${item.quantity} x ${item.name} @ ${Number(item.unitPrice || 0).toFixed(2)} = ${orderLineTotal(item).toFixed(2)}`,
+          `${item.quantity} x ${item.name}${item.sizeLabel ? ` (${item.sizeLabel})` : ""} @ ${Number(item.unitPrice || 0).toFixed(2)} = ${orderLineTotal(item).toFixed(2)}`,
       )
       .join("; "),
   ]);
@@ -366,7 +366,7 @@ function createOrderPdf(order: AdminOrder) {
     order.items.forEach((item) => {
       tableRow(
         [
-          item.name,
+          item.sizeLabel ? `${item.name} - Size: ${item.sizeLabel}` : item.name,
           String(item.quantity),
           formatMoney(item.unitPrice),
           formatMoney(orderLineTotal(item)),

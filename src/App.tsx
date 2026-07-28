@@ -671,9 +671,10 @@ export default function App() {
               </div>
               <div className="divide-y divide-border">
                 {order.items.map((item) => (
-                  <div key={`${order.id}-${item.productId || item.id || item.name}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
+                  <div key={`${order.id}-${item.productId || item.id || item.name}-${item.sizeId || item.sizeLabel || "regular"}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
                     <div className="min-w-0">
                       <p className="break-words font-semibold">{item.name}</p>
+                      {item.sizeLabel && <p className="mt-1 text-xs font-semibold text-caramel">Size: {item.sizeLabel}</p>}
                       <p className="mt-1 text-xs text-muted-foreground">{formatMoney(item.unitPrice)} each</p>
                     </div>
                     <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
@@ -966,9 +967,10 @@ export default function App() {
                           </div>
                           <div className="divide-y divide-border">
                             {activeOrder.items.map((item) => (
-                              <div key={`${activeOrder.id}-${item.productId || item.id || item.name}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
+                              <div key={`${activeOrder.id}-${item.productId || item.id || item.name}-${item.sizeId || item.sizeLabel || "regular"}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
                                 <div className="min-w-0">
                                   <p className="break-words font-semibold">{item.name}</p>
+                                  {item.sizeLabel && <p className="mt-1 text-xs font-semibold text-caramel">Size: {item.sizeLabel}</p>}
                                   <p className="mt-1 text-xs text-muted-foreground">{formatMoney(item.unitPrice)} each</p>
                                 </div>
                                 <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
