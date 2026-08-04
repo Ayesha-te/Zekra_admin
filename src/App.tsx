@@ -57,6 +57,10 @@ const emptyForm = {
   category: "Cookies",
   price: "",
   originalPrice: "",
+  preparationTime: "1",
+  preparationTimeUnit: "days",
+  deliveryTime: "1",
+  deliveryTimeUnit: "days",
   tag: "",
   description: "",
   isActive: true,
@@ -122,6 +126,21 @@ function productPriceSummary(product: Product) {
     .join(" • ");
 }
 
+function durationFieldsFromHours(hours: number | null | undefined) {
+  const value = Math.max(0, Number(hours) || 0);
+  if (value > 0 && value % 24 === 0) {
+    return { value: String(value / 24), unit: "days" };
+  }
+  return { value: String(value), unit: "hours" };
+}
+
+function durationSummary(hours: number | null | undefined) {
+  const { value, unit } = durationFieldsFromHours(hours);
+  const numeric = Number(value);
+  const label = numeric === 1 ? unit.replace(/s$/, "") : unit;
+  return `${numeric} ${label}`;
+}
+
 function sizeFormsFromProduct(product: Product): ProductSizeForm[] {
   return productSizes(product).map((size) => ({
     id: size.id,
@@ -152,6 +171,8 @@ function statusTone(status: OrderStatus) {
       return "border-orange-200 bg-orange-50 text-orange-800";
     case "ready":
       return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "out_for_delivery":
+      return "border-indigo-200 bg-indigo-50 text-indigo-800";
     case "completed":
       return "border-green-200 bg-green-50 text-green-800";
     case "cancelled":
@@ -410,11 +431,17 @@ export default function App() {
   }
 
   function startEdit(product: Product) {
+    const preparation = durationFieldsFromHours(product.preparationHours ?? 24);
+    const delivery = durationFieldsFromHours(product.deliveryHours ?? 24);
     const nextForm = {
       name: product.name,
       category: product.category,
       price: String(product.price),
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
+      preparationTime: preparation.value,
+      preparationTimeUnit: preparation.unit,
+      deliveryTime: delivery.value,
+      deliveryTimeUnit: delivery.unit,
       tag: product.tag || "",
       description: product.description || "",
       isActive: product.isActive !== false,
@@ -612,22 +639,18 @@ export default function App() {
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          {orderStatuses.map((status) => (
-            <button
-              key={status}
-              type="button"
-              disabled={orderBusyId === order.id}
-              onClick={() => changeOrderStatus(order, status)}
-              className={`rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-60 ${
-                order.status === status
-                  ? "border-primary bg-secondary text-primary"
-                  : "border-border bg-card hover:bg-secondary"
-              }`}
-            >
-              {orderStatusLabels[status]}
-            </button>
-          ))}
+        <div className="mt-5 rounded-xl border border-border bg-card p-3">
+          <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <span>Automatic tracking</span>
+            <span>{Math.round(Number(order.progressPercent || 0))}%</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, Number(order.progressPercent || 0)))}%` }} />
+          </div>
+          <dl className="mt-3 grid gap-2 text-xs">
+            <DetailRow label="Prep complete" value={formatDateTime(order.timeline?.preparationEndsAt)} />
+            <DetailRow label="Estimated finish" value={formatDateTime(order.timeline?.estimatedCompletionAt)} />
+          </dl>
         </div>
 
         <div className="mt-5 space-y-5 text-sm">
@@ -854,19 +877,14 @@ export default function App() {
                           {orderItemCount(order)}
                         </p>
                         <p className="text-sm font-semibold">{formatMoney(orderTotal(order))}</p>
-                        <select
-                          value={order.status}
-                          onChange={(event) => changeOrderStatus(order, event.target.value as OrderStatus)}
-                          disabled={updating}
-                          aria-label={`Change status for ${order.id}`}
-                          className={`w-full rounded-xl border px-3 py-2 text-xs font-semibold outline-none transition focus:border-primary disabled:opacity-60 ${statusTone(order.status)}`}
-                        >
-                          {orderStatuses.map((status) => (
-                            <option key={status} value={status}>
-                              {orderStatusLabels[status]}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="min-w-0">
+                          <span className={`inline-flex rounded-xl border px-3 py-2 text-xs font-semibold ${statusTone(order.status)}`}>
+                            {orderStatusLabels[order.status]}
+                          </span>
+                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, Number(order.progressPercent || 0)))}%` }} />
+                          </div>
+                        </div>
                         <div className="flex min-w-0 flex-wrap items-center gap-2 lg:flex-col lg:items-stretch lg:gap-1.5">
                           <button
                             type="button"
@@ -908,22 +926,18 @@ export default function App() {
                       </button>
                     </div>
 
-                    <div className="mt-5 grid grid-cols-2 gap-2">
-                      {orderStatuses.map((status) => (
-                        <button
-                          key={status}
-                          type="button"
-                          disabled={orderBusyId === activeOrder.id}
-                          onClick={() => changeOrderStatus(activeOrder, status)}
-                          className={`rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-60 ${
-                            activeOrder.status === status
-                              ? "border-primary bg-secondary text-primary"
-                              : "border-border bg-card hover:bg-secondary"
-                          }`}
-                        >
-                          {orderStatusLabels[status]}
-                        </button>
-                      ))}
+                    <div className="mt-5 rounded-xl border border-border bg-card p-3">
+                      <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        <span>Automatic tracking</span>
+                        <span>{Math.round(Number(activeOrder.progressPercent || 0))}%</span>
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, Number(activeOrder.progressPercent || 0)))}%` }} />
+                      </div>
+                      <dl className="mt-3 grid gap-2 text-xs">
+                        <DetailRow label="Prep complete" value={formatDateTime(activeOrder.timeline?.preparationEndsAt)} />
+                        <DetailRow label="Estimated finish" value={formatDateTime(activeOrder.timeline?.estimatedCompletionAt)} />
+                      </dl>
                     </div>
 
                     <div className="mt-5 space-y-5 text-sm">
@@ -1064,6 +1078,33 @@ export default function App() {
             <div>
               <label className="block text-sm font-medium">Fallback old price</label>
               <input type="number" step="0.01" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
+            <h3 className="font-display text-xl">Order timeline</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Used to calculate customer tracking automatically.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium">Preparation time</label>
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_112px] gap-2">
+                  <input type="number" min="0" step="0.25" value={form.preparationTime} onChange={(e) => setForm({ ...form, preparationTime: e.target.value })} className="w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+                  <select value={form.preparationTimeUnit} onChange={(e) => setForm({ ...form, preparationTimeUnit: e.target.value })} className="rounded-xl border border-border bg-background px-3 py-3 outline-none focus:border-primary">
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Delivery time</label>
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_112px] gap-2">
+                  <input type="number" min="0" step="0.25" value={form.deliveryTime} onChange={(e) => setForm({ ...form, deliveryTime: e.target.value })} className="w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+                  <select value={form.deliveryTimeUnit} onChange={(e) => setForm({ ...form, deliveryTimeUnit: e.target.value })} className="rounded-xl border border-border bg-background px-3 py-3 outline-none focus:border-primary">
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1221,6 +1262,9 @@ export default function App() {
                     </div>
                     <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
                     <p className="mt-2 text-sm text-muted-foreground">{productPriceSummary(product)}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Prep {durationSummary(product.preparationHours)} / Delivery {durationSummary(product.deliveryHours)}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
                     <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">

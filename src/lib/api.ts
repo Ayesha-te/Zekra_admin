@@ -8,6 +8,8 @@ export type Product = {
   sizes?: ProductSizeOption[];
   price: number;
   originalPrice?: number | null;
+  preparationHours?: number;
+  deliveryHours?: number;
   tag?: string;
   description?: string;
   urlSlug?: string;
@@ -51,7 +53,7 @@ export type DeliveryLocation = {
   isActive?: boolean;
 };
 
-export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
+export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "completed" | "cancelled";
 
 export type AdminOrder = {
   id: string;
@@ -90,6 +92,15 @@ export type AdminOrder = {
     deliveryFee?: number;
     total?: number;
   };
+  timeline?: {
+    preparationHours?: number;
+    deliveryHours?: number;
+    receivedAt?: string;
+    preparationEndsAt?: string;
+    deliveryEndsAt?: string;
+    estimatedCompletionAt?: string;
+  };
+  progressPercent?: number;
   payment?: {
     method?: string;
     provider?: string;
