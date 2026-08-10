@@ -5,6 +5,7 @@ export const orderStatuses: OrderStatus[] = [
   "confirmed",
   "preparing",
   "ready",
+  "out_for_delivery",
   "completed",
   "cancelled",
 ];
@@ -14,6 +15,7 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
   confirmed: "Confirmed",
   preparing: "Preparing",
   ready: "Ready",
+  out_for_delivery: "Out for Delivery",
   completed: "Completed",
   cancelled: "Cancelled",
 };
