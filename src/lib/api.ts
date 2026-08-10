@@ -54,6 +54,7 @@ export type DeliveryLocation = {
 };
 
 export type Coupon = { id: string; code: string; percentageOff: number; isActive?: boolean; updatedAt?: string };
+export type Driver = { id: string; name: string; username: string; contact: string; isActive?: boolean; updatedAt?: string };
 
 export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "completed" | "cancelled";
 
@@ -107,6 +108,7 @@ export type AdminOrder = {
   progressPercent?: number;
   statusHistory?: Array<{ status: OrderStatus | string; at: string }>;
   notification?: { status: "sent" | "skipped" | "failed"; reason?: string; id?: string };
+  assignedDriver?: { id: string; name: string; contact: string } | null;
   payment?: {
     method?: string;
     provider?: string;
@@ -172,4 +174,12 @@ export function updateAdminOrderStatus(token: string, id: string, status: OrderS
     },
     body: JSON.stringify({ status }),
   });
+}
+
+export function fetchDriverOrders(token: string) {
+  return apiFetch<AdminOrder[]>("/api/driver/orders", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function markDriverOrderDelivered(token: string, id: string) {
+  return apiFetch<AdminOrder>(`/api/driver/orders/${encodeURIComponent(id)}/delivered`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } });
 }

@@ -20,6 +20,7 @@ import {
   ShoppingBag,
   Trash2,
   Truck,
+  UserRound,
   X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -28,10 +29,13 @@ import {
   assetUrl,
   productImageError,
   fetchAdminOrders,
+  fetchDriverOrders,
+  markDriverOrderDelivered,
   updateAdminOrderStatus,
   type AdminOrder,
   type DeliveryLocation,
   type Coupon,
+  type Driver,
   type OrderStatus,
   type Product,
   type ProductSizeOption,
@@ -60,10 +64,6 @@ const emptyForm = {
   category: "Cookies",
   price: "",
   originalPrice: "",
-  preparationTime: "1",
-  preparationTimeUnit: "days",
-  deliveryTime: "1",
-  deliveryTimeUnit: "days",
   tag: "",
   description: "",
   isActive: true,
@@ -76,7 +76,7 @@ type ProductSizeForm = {
   price: string;
   originalPrice: string;
 };
-type AdminTab = "orders" | "products" | "locations" | "coupons";
+type AdminTab = "orders" | "products" | "locations" | "coupons" | "drivers";
 type OrderFilter = OrderStatus | "all";
 
 const emptyLocationForm = {
@@ -87,6 +87,7 @@ const emptyLocationForm = {
 
 type LocationForm = typeof emptyLocationForm;
 const emptyCouponForm = { code: "", percentageOff: "", isActive: true };
+const emptyDriverForm = { name: "", username: "", contact: "", password: "", isActive: true };
 
 function generatedImageAlt(nameValue: string, categoryValue: string) {
   const displayName = nameValue.trim().replace(/\s*\|\s*/g, " - ");
@@ -217,6 +218,7 @@ function shortOrderDate(value: string) {
 
 export default function App() {
   const [token, setToken] = useState("");
+  const [role, setRole] = useState("");
   const [activeTab, setActiveTab] = useState<AdminTab>("orders");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -246,6 +248,9 @@ export default function App() {
   const [couponForm, setCouponForm] = useState(emptyCouponForm);
   const [editingCouponId, setEditingCouponId] = useState<string | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [driverForm, setDriverForm] = useState(emptyDriverForm);
+  const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = "Admin - Zekra Sweets";
@@ -253,15 +258,18 @@ export default function App() {
 
   useEffect(() => {
     setToken(localStorage.getItem("adminToken") || "");
+    setRole(localStorage.getItem("adminRole") || "admin");
   }, []);
 
   useEffect(() => {
     if (!token) return;
+    if (role === "driver") { loadDriverOrders(token); return; }
     loadOrders(token);
     loadProducts(token);
     loadDeliveryLocations(token);
     loadCoupons(token);
-  }, [token]);
+    loadDrivers(token);
+  }, [token, role]);
 
   const editingProduct = useMemo(
     () => products.find((product) => product.id === editingId),
@@ -374,6 +382,43 @@ export default function App() {
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not load coupons"); }
   }
 
+  async function loadDrivers(authToken = token) {
+    try { setDrivers(await apiFetch<Driver[]>("/api/admin/drivers", { headers: { Authorization: `Bearer ${authToken}` } })); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not load drivers"); }
+  }
+
+  async function loadDriverOrders(authToken = token) {
+    setOrdersLoading(true);
+    try { setOrders(await fetchDriverOrders(authToken)); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not load assigned orders"); }
+    finally { setOrdersLoading(false); }
+  }
+
+  async function saveDriver(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setMessage("");
+    try {
+      await apiFetch<Driver>(editingDriverId ? `/api/admin/drivers/${editingDriverId}` : "/api/admin/drivers", { method: editingDriverId ? "PUT" : "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(driverForm) });
+      setDriverForm(emptyDriverForm); setEditingDriverId(null); setMessage("Driver saved."); await loadDrivers();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save driver"); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteDriver(id: string) {
+    if (!confirm("Delete this driver account?")) return;
+    try { await apiFetch(`/api/admin/drivers/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); setMessage("Driver deleted."); await loadDrivers(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete driver"); }
+  }
+
+  async function assignDriver(orderId: string, driverId: string) {
+    if (!driverId) return;
+    setOrderBusyId(orderId);
+    try {
+      const updated = await apiFetch<AdminOrder>(`/api/admin/orders/${encodeURIComponent(orderId)}/assign-driver`, { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ driverId }) });
+      setOrders((current) => current.map((order) => order.id === updated.id ? updated : order)); setMessage(`Order assigned to ${updated.assignedDriver?.name}. Customer email sent.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not assign driver"); }
+    finally { setOrderBusyId(null); }
+  }
+
   async function saveCoupon(event: FormEvent) {
     event.preventDefault(); setCouponBusy(true); setMessage("");
     try {
@@ -399,13 +444,15 @@ export default function App() {
     setBusy(true);
     setMessage("");
     try {
-      const result = await apiFetch<{ token: string }>("/api/auth/login", {
+      const result = await apiFetch<{ token: string; role: string }>("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
       localStorage.setItem("adminToken", result.token);
+      localStorage.setItem("adminRole", result.role);
       setToken(result.token);
+      setRole(result.role);
       setPassword("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Login failed");
@@ -465,17 +512,11 @@ export default function App() {
   }
 
   function startEdit(product: Product) {
-    const preparation = durationFieldsFromHours(product.preparationHours ?? 24);
-    const delivery = durationFieldsFromHours(product.deliveryHours ?? 24);
     const nextForm = {
       name: product.name,
       category: product.category,
       price: String(product.price),
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
-      preparationTime: preparation.value,
-      preparationTimeUnit: preparation.unit,
-      deliveryTime: delivery.value,
-      deliveryTimeUnit: delivery.unit,
       tag: product.tag || "",
       description: product.description || "",
       isActive: product.isActive !== false,
@@ -694,6 +735,7 @@ export default function App() {
         </div>
 
         <div className="mt-5 space-y-5 text-sm">
+          {fulfillmentMode(order) === "delivery" && <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order assigned to</h4>{order.assignedDriver && <p className="mt-1 text-sm text-muted-foreground">Current: {order.assignedDriver.name} - {order.assignedDriver.contact}</p>}<select value={order.assignedDriver?.id || ""} onChange={(event) => assignDriver(order.id, event.target.value)} disabled={orderBusyId === order.id} className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"><option value="">Select driver and send order</option>{drivers.filter((driver) => driver.isActive !== false).map((driver) => <option key={driver.id} value={driver.id}>{driver.name} - {driver.contact}</option>)}</select><p className="mt-2 text-xs text-muted-foreground">Assigning sends the customer an out-for-delivery email with driver details.</p></section>}
           <section>
             <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Customer</h4>
             <dl className="mt-3 grid gap-3">
@@ -769,7 +811,9 @@ export default function App() {
 
   function logout() {
     localStorage.removeItem("adminToken");
+    localStorage.removeItem("adminRole");
     setToken("");
+    setRole("");
     setOrders([]);
     setProducts([]);
     setDeliveryLocations([]);
@@ -1124,33 +1168,6 @@ export default function App() {
           </div>
 
           <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
-            <h3 className="font-display text-xl">Order timeline</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Used to calculate customer tracking automatically.</p>
-            <div className="mt-4 grid gap-4">
-              <div>
-                <label className="block text-sm font-medium">Preparation time</label>
-                <div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2">
-                  <input type="number" min="0" step="0.25" value={form.preparationTime} onChange={(e) => setForm({ ...form, preparationTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" placeholder="1" />
-                  <select value={form.preparationTimeUnit} onChange={(e) => setForm({ ...form, preparationTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary">
-                    <option value="hours">Hours</option>
-                    <option value="days">Days</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Delivery time</label>
-                <div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2">
-                  <input type="number" min="0" step="0.25" value={form.deliveryTime} onChange={(e) => setForm({ ...form, deliveryTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" placeholder="1" />
-                  <select value={form.deliveryTimeUnit} onChange={(e) => setForm({ ...form, deliveryTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary">
-                    <option value="hours">Hours</option>
-                    <option value="days">Days</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-display text-xl">Size prices</h3>
@@ -1471,6 +1488,21 @@ export default function App() {
     </section>;
   }
 
+  function renderDriversTab() {
+    return <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]"><form onSubmit={saveDriver} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"><h2 className="font-display text-2xl">{editingDriverId ? "Edit driver" : "Add driver"}</h2><p className="mt-1 text-sm text-muted-foreground">Create the driver login and contact shown to customers.</p>{(["name", "username", "contact", "password"] as const).map((field) => <label key={field} className="mt-4 block text-sm font-medium">{field === "username" ? "Login username" : field.replace(/^./, (letter) => letter.toUpperCase())}<input required={field !== "password" || !editingDriverId} type={field === "password" ? "password" : "text"} value={driverForm[field]} onChange={(event) => setDriverForm({ ...driverForm, [field]: event.target.value })} placeholder={field === "password" && editingDriverId ? "Leave blank to keep password" : undefined} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3" /></label>)}<label className="mt-4 flex gap-2 text-sm"><input type="checkbox" checked={driverForm.isActive} onChange={(event) => setDriverForm({ ...driverForm, isActive: event.target.checked })} />Active</label><button disabled={busy} className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground">Save driver</button></form><div className="rounded-3xl border border-border bg-card p-5 shadow-glass"><h2 className="font-display text-2xl">Drivers</h2><div className="mt-4 space-y-3">{drivers.length === 0 ? <p className="text-sm text-muted-foreground">No drivers yet.</p> : drivers.map((driver) => <article key={driver.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border p-4"><div><h3 className="font-semibold">{driver.name}</h3><p className="text-sm text-muted-foreground">{driver.contact} - Login: {driver.username}</p></div><div className="flex gap-2"><button onClick={() => { setEditingDriverId(driver.id); setDriverForm({ name: driver.name, username: driver.username, contact: driver.contact, password: "", isActive: driver.isActive !== false }); }} className={actionButtonClass()}><Edit3 className="h-4 w-4" />Edit</button><button onClick={() => deleteDriver(driver.id)} className={actionButtonClass("danger")}><Trash2 className="h-4 w-4" />Delete</button></div></article>)}</div></div></section>;
+  }
+
+  async function driverDelivered(order: AdminOrder) {
+    setOrderBusyId(order.id);
+    try { const updated = await markDriverOrderDelivered(token, order.id); setOrders((current) => current.map((item) => item.id === updated.id ? updated : item)); setMessage("Order marked delivered and customer email sent."); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not mark delivered"); }
+    finally { setOrderBusyId(null); }
+  }
+
+  function renderDriverPanel() {
+    return <main className="min-h-screen bg-background px-4 py-8"><div className="mx-auto max-w-5xl"><div className="flex items-center justify-between"><div><span className="text-xs uppercase tracking-[0.3em] text-caramel">Zekra Sweets</span><h1 className="mt-2 font-display text-4xl">Driver panel</h1></div><button onClick={logout} className={actionButtonClass()}><LogOut className="h-4 w-4" />Logout</button></div>{message && <div className="mt-5 rounded-2xl border border-border bg-card p-4 text-sm">{message}</div>}<div className="mt-6 space-y-4">{ordersLoading ? <p>Loading assigned orders...</p> : orders.length === 0 ? <div className="rounded-3xl border border-dashed border-border p-10 text-center text-muted-foreground">No orders assigned.</div> : orders.map((order) => <article key={order.id} className="rounded-3xl border border-border bg-card p-5 shadow-glass"><div className="flex flex-wrap justify-between gap-3"><div><h2 className="font-display text-2xl">{order.id}</h2><p className="mt-1 text-sm">{order.customer.name} - <a href={`tel:${order.customer.phone}`} className="text-primary">{order.customer.phone}</a></p></div><span className={`h-fit rounded-xl border px-3 py-2 text-xs font-semibold ${statusTone(order.status)}`}>{orderStatusLabels[order.status]}</span></div><div className="mt-4 rounded-2xl bg-muted/50 p-4"><div className="text-xs uppercase tracking-wider text-muted-foreground">Delivery address</div><p className="mt-1 font-semibold">{order.fulfillment.address || "No address"}</p></div><div className="mt-4 space-y-2 text-sm">{order.items.map((item, index) => <div key={`${item.productId}-${index}`} className="flex justify-between gap-3"><span>{item.name}{item.sizeLabel ? ` (${item.sizeLabel})` : ""}</span><strong>x{item.quantity}</strong></div>)}</div>{order.status !== "completed" && <button onClick={() => driverDelivered(order)} disabled={orderBusyId === order.id} className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60"><CheckCircle2 className="mr-2 inline h-4 w-4" />Mark delivered</button>}</article>)}</div></div></main>;
+  }
+
   if (!token) {
     return (
       <main className="grid min-h-screen place-items-center bg-background px-4">
@@ -1490,11 +1522,14 @@ export default function App() {
     );
   }
 
+  if (role === "driver") return renderDriverPanel();
+
   const tabs = [
     { id: "orders" as const, label: "Orders", count: orders.length, icon: ClipboardList },
     { id: "products" as const, label: "Products", count: products.length, icon: ShoppingBag },
     { id: "locations" as const, label: "Delivery", count: deliveryLocations.length, icon: MapPin },
     { id: "coupons" as const, label: "Coupons", count: coupons.length, icon: BadgePercent },
+    { id: "drivers" as const, label: "Drivers", count: drivers.length, icon: UserRound },
   ];
 
   return (
@@ -1535,6 +1570,7 @@ export default function App() {
         {activeTab === "products" && renderProductsTab()}
         {activeTab === "locations" && renderLocationsTab()}
         {activeTab === "coupons" && renderCouponsTab()}
+        {activeTab === "drivers" && renderDriversTab()}
 
         {detailOrder && (
           <div
