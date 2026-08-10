@@ -31,7 +31,6 @@ import {
   fetchAdminOrders,
   fetchDriverOrders,
   markDriverOrderDelivered,
-  updateAdminOrderStatus,
   type AdminOrder,
   type DeliveryLocation,
   type Coupon,
@@ -64,6 +63,10 @@ const emptyForm = {
   category: "Cookies",
   price: "",
   originalPrice: "",
+  preparationTime: "1",
+  preparationTimeUnit: "days",
+  deliveryTime: "1",
+  deliveryTimeUnit: "days",
   tag: "",
   description: "",
   isActive: true,
@@ -512,11 +515,17 @@ export default function App() {
   }
 
   function startEdit(product: Product) {
+    const preparation = durationFieldsFromHours(product.preparationHours ?? 24);
+    const delivery = durationFieldsFromHours(product.deliveryHours ?? 24);
     const nextForm = {
       name: product.name,
       category: product.category,
       price: String(product.price),
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
+      preparationTime: preparation.value,
+      preparationTimeUnit: preparation.unit,
+      deliveryTime: delivery.value,
+      deliveryTimeUnit: delivery.unit,
       tag: product.tag || "",
       description: product.description || "",
       isActive: product.isActive !== false,
@@ -670,30 +679,6 @@ export default function App() {
       setMessage(error instanceof Error ? error.message : "Could not delete delivery location");
     } finally {
       setLocationBusyId(null);
-    }
-  }
-
-  async function changeOrderStatus(order: AdminOrder, status: OrderStatus) {
-    if (order.status === status) return;
-    setOrderBusyId(order.id);
-    setMessage("");
-
-    try {
-      const updatedOrder = await updateAdminOrderStatus(token, order.id, status);
-      setOrders((currentOrders) =>
-        currentOrders.map((currentOrder) => (currentOrder.id === updatedOrder.id ? updatedOrder : currentOrder)),
-      );
-      setSelectedOrderId(updatedOrder.id);
-      const emailResult = updatedOrder.notification?.status === "sent"
-        ? " Customer email sent."
-        : updatedOrder.notification?.reason
-          ? ` Email not sent: ${updatedOrder.notification.reason}.`
-          : "";
-      setMessage(`Order ${updatedOrder.id} marked ${orderStatusLabels[updatedOrder.status]}.${emailResult}`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update order status");
-    } finally {
-      setOrderBusyId(null);
     }
   }
 
@@ -1164,6 +1149,15 @@ export default function App() {
             <div>
               <label className="block text-sm font-medium">Fallback old price</label>
               <input type="number" step="0.01" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
+            <h3 className="font-display text-xl">Automatic order tracking</h3>
+            <p className="mt-1 text-xs text-muted-foreground">These times start when the order is placed. Tracking and emails update automatically in Dubai time.</p>
+            <div className="mt-4 grid gap-4">
+              <div><label className="block text-sm font-medium">Order making time</label><div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2"><input type="number" min="0" step="0.25" value={form.preparationTime} onChange={(e) => setForm({ ...form, preparationTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" /><select value={form.preparationTimeUnit} onChange={(e) => setForm({ ...form, preparationTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm"><option value="hours">Hours</option><option value="days">Days</option></select></div></div>
+              <div><label className="block text-sm font-medium">Delivery time after order is sent</label><div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2"><input type="number" min="0" step="0.25" value={form.deliveryTime} onChange={(e) => setForm({ ...form, deliveryTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" /><select value={form.deliveryTimeUnit} onChange={(e) => setForm({ ...form, deliveryTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm"><option value="hours">Hours</option><option value="days">Days</option></select></div></div>
             </div>
           </div>
 

@@ -38,6 +38,7 @@ export function formatDateTime(value: string | null | undefined) {
   return new Intl.DateTimeFormat("en-AE", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Dubai",
   }).format(date);
 }
 
