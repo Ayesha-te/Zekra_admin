@@ -643,7 +643,12 @@ export default function App() {
         currentOrders.map((currentOrder) => (currentOrder.id === updatedOrder.id ? updatedOrder : currentOrder)),
       );
       setSelectedOrderId(updatedOrder.id);
-      setMessage(`Order ${updatedOrder.id} marked ${orderStatusLabels[updatedOrder.status]}.`);
+      const emailResult = updatedOrder.notification?.status === "sent"
+        ? " Customer email sent."
+        : updatedOrder.notification?.reason
+          ? ` Email not sent: ${updatedOrder.notification.reason}.`
+          : "";
+      setMessage(`Order ${updatedOrder.id} marked ${orderStatusLabels[updatedOrder.status]}.${emailResult}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not update order status");
     } finally {
@@ -685,6 +690,7 @@ export default function App() {
             <DetailRow label="Prep complete" value={formatDateTime(order.timeline?.preparationEndsAt)} />
             <DetailRow label="Estimated finish" value={formatDateTime(order.timeline?.estimatedCompletionAt)} />
           </dl>
+          {order.statusHistory && order.statusHistory.length > 0 && <div className="mt-4 border-t border-border pt-3"><div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Status updates</div><div className="mt-2 space-y-2">{order.statusHistory.map((entry, index) => <div key={`${entry.status}-${entry.at}-${index}`} className="flex justify-between gap-3 text-xs"><span className="font-semibold">{orderStatusLabels[entry.status as OrderStatus] || entry.status}</span><span className="text-muted-foreground">{formatDateTime(entry.at)}</span></div>)}</div></div>}
         </div>
 
         <div className="mt-5 space-y-5 text-sm">

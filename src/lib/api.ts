@@ -105,6 +105,8 @@ export type AdminOrder = {
     estimatedCompletionAt?: string;
   };
   progressPercent?: number;
+  statusHistory?: Array<{ status: OrderStatus | string; at: string }>;
+  notification?: { status: "sent" | "skipped" | "failed"; reason?: string; id?: string };
   payment?: {
     method?: string;
     provider?: string;
