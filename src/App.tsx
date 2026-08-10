@@ -65,8 +65,6 @@ const emptyForm = {
   originalPrice: "",
   preparationTime: "1",
   preparationTimeUnit: "days",
-  deliveryTime: "1",
-  deliveryTimeUnit: "days",
   tag: "",
   description: "",
   isActive: true,
@@ -136,6 +134,7 @@ function productPriceSummary(product: Product) {
 
 function durationFieldsFromHours(hours: number | null | undefined) {
   const value = Math.max(0, Number(hours) || 0);
+  if (value > 0 && value < 1) return { value: String(Math.round(value * 60)), unit: "minutes" };
   if (value > 0 && value % 24 === 0) {
     return { value: String(value / 24), unit: "days" };
   }
@@ -422,6 +421,16 @@ export default function App() {
     finally { setOrderBusyId(null); }
   }
 
+  async function confirmOrder(orderId: string) {
+    setOrderBusyId(orderId); setMessage("");
+    try {
+      const updated = await apiFetch<AdminOrder>(`/api/admin/orders/${encodeURIComponent(orderId)}/confirm`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } });
+      setOrders((current) => current.map((order) => order.id === updated.id ? updated : order));
+      setMessage("Order confirmed. The customer was emailed and making time has started.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not confirm order"); }
+    finally { setOrderBusyId(null); }
+  }
+
   async function saveCoupon(event: FormEvent) {
     event.preventDefault(); setCouponBusy(true); setMessage("");
     try {
@@ -516,7 +525,6 @@ export default function App() {
 
   function startEdit(product: Product) {
     const preparation = durationFieldsFromHours(product.preparationHours ?? 24);
-    const delivery = durationFieldsFromHours(product.deliveryHours ?? 24);
     const nextForm = {
       name: product.name,
       category: product.category,
@@ -524,8 +532,6 @@ export default function App() {
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
       preparationTime: preparation.value,
       preparationTimeUnit: preparation.unit,
-      deliveryTime: delivery.value,
-      deliveryTimeUnit: delivery.unit,
       tag: product.tag || "",
       description: product.description || "",
       isActive: product.isActive !== false,
@@ -706,7 +712,7 @@ export default function App() {
 
         <div className="mt-5 rounded-xl border border-border bg-card p-3">
           <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <span>Automatic tracking</span>
+            <span>Order timeline · Dubai time</span>
             <span>{Math.round(Number(order.progressPercent || 0))}%</span>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
@@ -714,12 +720,13 @@ export default function App() {
           </div>
           <dl className="mt-3 grid gap-2 text-xs">
             <DetailRow label="Prep complete" value={formatDateTime(order.timeline?.preparationEndsAt)} />
-            <DetailRow label="Estimated finish" value={formatDateTime(order.timeline?.estimatedCompletionAt)} />
+            <DetailRow label="Confirmed" value={formatDateTime(order.timeline?.confirmedAt)} />
           </dl>
           {order.statusHistory && order.statusHistory.length > 0 && <div className="mt-4 border-t border-border pt-3"><div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Status updates</div><div className="mt-2 space-y-2">{order.statusHistory.map((entry, index) => <div key={`${entry.status}-${entry.at}-${index}`} className="flex justify-between gap-3 text-xs"><span className="font-semibold">{orderStatusLabels[entry.status as OrderStatus] || entry.status}</span><span className="text-muted-foreground">{formatDateTime(entry.at)}</span></div>)}</div></div>}
         </div>
 
         <div className="mt-5 space-y-5 text-sm">
+          <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order confirmation</h4><p className="mt-1 text-sm text-muted-foreground">Confirming emails the customer and starts the product making time.</p><button type="button" onClick={() => confirmOrder(order.id)} disabled={orderBusyId === order.id || Boolean(order.statusHistory?.some((entry) => entry.status === "confirmed"))} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />{order.statusHistory?.some((entry) => entry.status === "confirmed") ? "Order confirmed" : "Confirm order"}</button></section>
           {fulfillmentMode(order) === "delivery" && <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order assigned to</h4>{order.assignedDriver && <p className="mt-1 text-sm text-muted-foreground">Current: {order.assignedDriver.name} - {order.assignedDriver.contact}</p>}<select value={order.assignedDriver?.id || ""} onChange={(event) => assignDriver(order.id, event.target.value)} disabled={orderBusyId === order.id} className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"><option value="">Select driver and send order</option>{drivers.filter((driver) => driver.isActive !== false).map((driver) => <option key={driver.id} value={driver.id}>{driver.name} - {driver.contact}</option>)}</select><p className="mt-2 text-xs text-muted-foreground">Assigning sends the customer an out-for-delivery email with driver details.</p></section>}
           <section>
             <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Customer</h4>
@@ -998,7 +1005,7 @@ export default function App() {
 
                     <div className="mt-5 rounded-xl border border-border bg-card p-3">
                       <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                        <span>Automatic tracking</span>
+                        <span>Order timeline · Dubai time</span>
                         <span>{Math.round(Number(activeOrder.progressPercent || 0))}%</span>
                       </div>
                       <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
@@ -1006,11 +1013,13 @@ export default function App() {
                       </div>
                       <dl className="mt-3 grid gap-2 text-xs">
                         <DetailRow label="Prep complete" value={formatDateTime(activeOrder.timeline?.preparationEndsAt)} />
-                        <DetailRow label="Estimated finish" value={formatDateTime(activeOrder.timeline?.estimatedCompletionAt)} />
+                        <DetailRow label="Confirmed" value={formatDateTime(activeOrder.timeline?.confirmedAt)} />
                       </dl>
                     </div>
 
                     <div className="mt-5 space-y-5 text-sm">
+                      <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order confirmation</h4><p className="mt-1 text-sm text-muted-foreground">Confirming emails the customer and starts making time.</p><button type="button" onClick={() => confirmOrder(activeOrder.id)} disabled={orderBusyId === activeOrder.id || Boolean(activeOrder.statusHistory?.some((entry) => entry.status === "confirmed"))} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />{activeOrder.statusHistory?.some((entry) => entry.status === "confirmed") ? "Order confirmed" : "Confirm order"}</button></section>
+                      {fulfillmentMode(activeOrder) === "delivery" && <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order assigned to</h4>{activeOrder.assignedDriver && <p className="mt-1 text-sm text-muted-foreground">Current: {activeOrder.assignedDriver.name} - {activeOrder.assignedDriver.contact}</p>}<select value={activeOrder.assignedDriver?.id || ""} onChange={(event) => assignDriver(activeOrder.id, event.target.value)} disabled={orderBusyId === activeOrder.id || activeOrder.status === "completed"} className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"><option value="">Select driver and send order</option>{drivers.filter((driver) => driver.isActive !== false).map((driver) => <option key={driver.id} value={driver.id}>{driver.name} - {driver.contact}</option>)}</select><p className="mt-2 text-xs text-muted-foreground">Assignment is the sent-for-delivery transition and emails driver details immediately.</p></section>}
                       <section>
                         <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Customer</h4>
                         <dl className="mt-3 grid gap-3">
@@ -1153,11 +1162,10 @@ export default function App() {
           </div>
 
           <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
-            <h3 className="font-display text-xl">Automatic order tracking</h3>
-            <p className="mt-1 text-xs text-muted-foreground">These times start when the order is placed. Tracking and emails update automatically in Dubai time.</p>
+            <h3 className="font-display text-xl">Order timeline</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Making time starts when the order is confirmed.</p>
             <div className="mt-4 grid gap-4">
-              <div><label className="block text-sm font-medium">Order making time</label><div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2"><input type="number" min="0" step="0.25" value={form.preparationTime} onChange={(e) => setForm({ ...form, preparationTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" /><select value={form.preparationTimeUnit} onChange={(e) => setForm({ ...form, preparationTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm"><option value="hours">Hours</option><option value="days">Days</option></select></div></div>
-              <div><label className="block text-sm font-medium">Delivery time after order is sent</label><div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2"><input type="number" min="0" step="0.25" value={form.deliveryTime} onChange={(e) => setForm({ ...form, deliveryTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" /><select value={form.deliveryTimeUnit} onChange={(e) => setForm({ ...form, deliveryTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm"><option value="hours">Hours</option><option value="days">Days</option></select></div></div>
+              <div><label className="block text-sm font-medium">Making time</label><div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2"><input type="number" min="0" step="0.25" value={form.preparationTime} onChange={(e) => setForm({ ...form, preparationTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" /><select value={form.preparationTimeUnit} onChange={(e) => setForm({ ...form, preparationTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></div></div>
             </div>
           </div>
 
@@ -1316,7 +1324,7 @@ export default function App() {
                     <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
                     <p className="mt-2 text-sm text-muted-foreground">{productPriceSummary(product)}</p>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      Prep {durationSummary(product.preparationHours)} / Delivery {durationSummary(product.deliveryHours)}
+                      Making time: {durationSummary(product.preparationHours)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">

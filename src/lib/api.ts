@@ -9,7 +9,6 @@ export type Product = {
   price: number;
   originalPrice?: number | null;
   preparationHours?: number;
-  deliveryHours?: number;
   tag?: string;
   description?: string;
   urlSlug?: string;
@@ -99,8 +98,9 @@ export type AdminOrder = {
   coupon?: { code: string; percentageOff: number } | null;
   timeline?: {
     preparationHours?: number;
-    deliveryHours?: number;
     receivedAt?: string;
+    confirmedAt?: string;
+    makingStartedAt?: string;
     preparationEndsAt?: string;
     deliveryEndsAt?: string;
     estimatedCompletionAt?: string;
