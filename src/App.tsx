@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  BadgePercent,
   ClipboardList,
   Download,
   Edit3,
@@ -30,6 +31,7 @@ import {
   updateAdminOrderStatus,
   type AdminOrder,
   type DeliveryLocation,
+  type Coupon,
   type OrderStatus,
   type Product,
   type ProductSizeOption,
@@ -42,6 +44,7 @@ import {
   fulfillmentLabel,
   fulfillmentMode,
   orderDeliveryFee,
+  orderDiscount,
   orderItemCount,
   orderSearchText,
   orderStatusLabels,
@@ -73,7 +76,7 @@ type ProductSizeForm = {
   price: string;
   originalPrice: string;
 };
-type AdminTab = "orders" | "products" | "locations";
+type AdminTab = "orders" | "products" | "locations" | "coupons";
 type OrderFilter = OrderStatus | "all";
 
 const emptyLocationForm = {
@@ -83,6 +86,7 @@ const emptyLocationForm = {
 };
 
 type LocationForm = typeof emptyLocationForm;
+const emptyCouponForm = { code: "", percentageOff: "", isActive: true };
 
 function generatedImageAlt(nameValue: string, categoryValue: string) {
   const displayName = nameValue.trim().replace(/\s*\|\s*/g, " - ");
@@ -217,6 +221,7 @@ export default function App() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [deliveryLocations, setDeliveryLocations] = useState<DeliveryLocation[]>([]);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [productSizeForms, setProductSizeForms] = useState<ProductSizeForm[]>([]);
   const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocationForm);
@@ -238,6 +243,9 @@ export default function App() {
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationBusyId, setLocationBusyId] = useState<string | null>(null);
+  const [couponForm, setCouponForm] = useState(emptyCouponForm);
+  const [editingCouponId, setEditingCouponId] = useState<string | null>(null);
+  const [couponBusy, setCouponBusy] = useState(false);
 
   useEffect(() => {
     document.title = "Admin - Zekra Sweets";
@@ -252,6 +260,7 @@ export default function App() {
     loadOrders(token);
     loadProducts(token);
     loadDeliveryLocations(token);
+    loadCoupons(token);
   }, [token]);
 
   const editingProduct = useMemo(
@@ -358,6 +367,31 @@ export default function App() {
     } finally {
       setLocationsLoading(false);
     }
+  }
+
+  async function loadCoupons(authToken = token) {
+    try { setCoupons(await apiFetch<Coupon[]>("/api/admin/coupons", { headers: { Authorization: `Bearer ${authToken}` } })); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not load coupons"); }
+  }
+
+  async function saveCoupon(event: FormEvent) {
+    event.preventDefault(); setCouponBusy(true); setMessage("");
+    try {
+      await apiFetch<Coupon>(editingCouponId ? `/api/admin/coupons/${editingCouponId}` : "/api/admin/coupons", {
+        method: editingCouponId ? "PUT" : "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...couponForm, percentageOff: Number(couponForm.percentageOff) }),
+      });
+      setCouponForm(emptyCouponForm); setEditingCouponId(null); setMessage(editingCouponId ? "Coupon updated." : "Coupon added."); await loadCoupons();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save coupon"); }
+    finally { setCouponBusy(false); }
+  }
+
+  function editCoupon(coupon: Coupon) { setEditingCouponId(coupon.id); setCouponForm({ code: coupon.code, percentageOff: String(coupon.percentageOff), isActive: coupon.isActive !== false }); }
+  async function deleteCoupon(id: string) {
+    if (!window.confirm("Delete this coupon?")) return;
+    try { await apiFetch(`/api/admin/coupons/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); setMessage("Coupon deleted."); await loadCoupons(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete coupon"); }
   }
 
   async function login(event: FormEvent) {
@@ -718,6 +752,7 @@ export default function App() {
             <div className="space-y-2">
               <TotalRow label="Subtotal" value={formatMoney(orderSubtotal(order))} />
               <TotalRow label="Delivery" value={formatMoney(orderDeliveryFee(order))} />
+              {orderDiscount(order) > 0 && <TotalRow label={`Discount${order.coupon?.code ? ` (${order.coupon.code})` : ""}`} value={`-${formatMoney(orderDiscount(order))}`} />}
               <TotalRow label="Total" value={formatMoney(orderTotal(order))} strong />
             </div>
           </section>
@@ -1005,6 +1040,7 @@ export default function App() {
                         <div className="space-y-2">
                           <TotalRow label="Subtotal" value={formatMoney(orderSubtotal(activeOrder))} />
                           <TotalRow label="Delivery" value={formatMoney(orderDeliveryFee(activeOrder))} />
+                          {orderDiscount(activeOrder) > 0 && <TotalRow label={`Discount${activeOrder.coupon?.code ? ` (${activeOrder.coupon.code})` : ""}`} value={`-${formatMoney(orderDiscount(activeOrder))}`} />}
                           <TotalRow label="Total" value={formatMoney(orderTotal(activeOrder))} strong />
                         </div>
                       </section>
@@ -1413,6 +1449,22 @@ export default function App() {
     );
   }
 
+  function renderCouponsTab() {
+    return <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
+      <form onSubmit={saveCoupon} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
+        <h2 className="font-display text-2xl">{editingCouponId ? "Edit coupon" : "New coupon"}</h2><p className="mt-1 text-sm text-muted-foreground">Create a code and choose its checkout discount.</p>
+        <label className="mt-5 block text-sm font-medium">Coupon code</label><input required value={couponForm.code} onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase().replace(/\s/g, "") })} placeholder="TEAM20" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 uppercase outline-none focus:border-primary" />
+        <label className="mt-4 block text-sm font-medium">Percentage off</label><input required type="number" min="1" max="99" step="0.01" value={couponForm.percentageOff} onChange={(e) => setCouponForm({ ...couponForm, percentageOff: e.target.value })} placeholder="20" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+        <label className="mt-4 flex items-center gap-3 text-sm font-medium"><input type="checkbox" checked={couponForm.isActive} onChange={(e) => setCouponForm({ ...couponForm, isActive: e.target.checked })} className="h-4 w-4 accent-primary" />Active at checkout</label>
+        <button disabled={couponBusy} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"><Save className="h-4 w-4" />{couponBusy ? "Saving..." : "Save coupon"}</button>
+        {editingCouponId && <button type="button" onClick={() => { setEditingCouponId(null); setCouponForm(emptyCouponForm); }} className="mt-3 w-full text-sm text-primary">Cancel editing</button>}
+      </form>
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-glass"><div className="flex items-center justify-between gap-3"><div><h2 className="font-display text-2xl">Coupons</h2><p className="text-sm text-muted-foreground">{coupons.length} configured</p></div><button onClick={() => loadCoupons()} className={actionButtonClass()}><RefreshCw className="h-4 w-4" />Refresh</button></div>
+        <div className="mt-5 divide-y divide-border overflow-hidden rounded-2xl border border-border">{coupons.length === 0 ? <div className="p-8 text-center text-sm text-muted-foreground">No coupons yet.</div> : coupons.map((coupon) => <article key={coupon.id} className="flex flex-wrap items-center justify-between gap-3 bg-background/60 p-4"><div><div className="flex items-center gap-2"><h3 className="font-mono text-lg font-bold">{coupon.code}</h3><span className={`rounded-full px-3 py-1 text-xs font-semibold ${coupon.isActive !== false ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}>{coupon.isActive !== false ? "Active" : "Inactive"}</span></div><p className="mt-1 text-sm text-muted-foreground">{coupon.percentageOff}% off</p></div><div className="flex gap-2"><button onClick={() => editCoupon(coupon)} className={actionButtonClass()}><Edit3 className="h-4 w-4" />Edit</button><button onClick={() => deleteCoupon(coupon.id)} className={actionButtonClass("danger")}><Trash2 className="h-4 w-4" />Delete</button></div></article>)}</div>
+      </div>
+    </section>;
+  }
+
   if (!token) {
     return (
       <main className="grid min-h-screen place-items-center bg-background px-4">
@@ -1436,6 +1488,7 @@ export default function App() {
     { id: "orders" as const, label: "Orders", count: orders.length, icon: ClipboardList },
     { id: "products" as const, label: "Products", count: products.length, icon: ShoppingBag },
     { id: "locations" as const, label: "Delivery", count: deliveryLocations.length, icon: MapPin },
+    { id: "coupons" as const, label: "Coupons", count: coupons.length, icon: BadgePercent },
   ];
 
   return (
@@ -1475,6 +1528,7 @@ export default function App() {
         {activeTab === "orders" && renderOrdersTab()}
         {activeTab === "products" && renderProductsTab()}
         {activeTab === "locations" && renderLocationsTab()}
+        {activeTab === "coupons" && renderCouponsTab()}
 
         {detailOrder && (
           <div

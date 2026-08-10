@@ -53,6 +53,8 @@ export type DeliveryLocation = {
   isActive?: boolean;
 };
 
+export type Coupon = { id: string; code: string; percentageOff: number; isActive?: boolean; updatedAt?: string };
+
 export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "completed" | "cancelled";
 
 export type AdminOrder = {
@@ -91,7 +93,9 @@ export type AdminOrder = {
     delivery?: number;
     deliveryFee?: number;
     total?: number;
+    discount?: number;
   };
+  coupon?: { code: string; percentageOff: number } | null;
   timeline?: {
     preparationHours?: number;
     deliveryHours?: number;

@@ -82,10 +82,15 @@ export function orderDeliveryFee(order: AdminOrder) {
   return Number.isFinite(saved) ? saved : 0;
 }
 
+export function orderDiscount(order: AdminOrder) {
+  const saved = Number(order.totals.discount ?? 0);
+  return Number.isFinite(saved) ? saved : 0;
+}
+
 export function orderTotal(order: AdminOrder) {
   const saved = Number(order.totals.total);
   if (Number.isFinite(saved)) return saved;
-  return Number((orderSubtotal(order) + orderDeliveryFee(order)).toFixed(2));
+  return Number((orderSubtotal(order) - orderDiscount(order) + orderDeliveryFee(order)).toFixed(2));
 }
 
 export function paymentMethodLabel(order: AdminOrder) {
@@ -388,6 +393,12 @@ function createOrderPdf(order: AdminOrder) {
     ["Delivery", formatMoney(orderDeliveryFee(order))],
     [contentWidth - 120, 120],
   );
+  if (orderDiscount(order) > 0) {
+    tableRow(
+      [`Discount${order.coupon?.code ? ` (${order.coupon.code})` : ""}`, `-${formatMoney(orderDiscount(order))}`],
+      [contentWidth - 120, 120],
+    );
+  }
   tableRow(
     ["Total", formatMoney(orderTotal(order))],
     [contentWidth - 120, 120],
