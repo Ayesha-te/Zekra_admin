@@ -16,7 +16,7 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
   preparing: "Preparing",
   ready: "Ready",
   out_for_delivery: "Out for Delivery",
-  completed: "Completed",
+  completed: "Delivered",
   cancelled: "Cancelled",
 };
 
