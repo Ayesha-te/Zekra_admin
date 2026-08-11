@@ -7,6 +7,7 @@ export const orderStatuses: OrderStatus[] = [
   "ready",
   "out_for_delivery",
   "completed",
+  "collected",
   "cancelled",
 ];
 
@@ -17,6 +18,7 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
   ready: "Ready",
   out_for_delivery: "Out for Delivery",
   completed: "Delivered",
+  collected: "Collected",
   cancelled: "Cancelled",
 };
 
@@ -152,7 +154,6 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     "Total AED",
     "Payment Method",
     "Payment Status",
-    "Stripe Session",
     "Items",
   ];
 
@@ -173,7 +174,6 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     orderTotal(order).toFixed(2),
     paymentMethodLabel(order),
     paymentStatusLabel(order),
-    order.payment?.stripeSessionId || "",
     order.items
       .map(
         (item) =>
@@ -349,12 +349,6 @@ function createOrderPdf(order: AdminOrder) {
     ["Payment", `${paymentMethodLabel(order)} - ${paymentStatusLabel(order)}`],
     [120, contentWidth - 120],
   );
-  if (order.payment?.stripeSessionId) {
-    tableRow(
-      ["Stripe session", order.payment.stripeSessionId],
-      [120, contentWidth - 120],
-    );
-  }
   y -= 16;
 
   if (order.notes) {

@@ -54,8 +54,9 @@ export type DeliveryLocation = {
 
 export type Coupon = { id: string; code: string; percentageOff: number; isActive?: boolean; updatedAt?: string };
 export type Driver = { id: string; name: string; username: string; contact: string; isActive?: boolean; updatedAt?: string };
+export type PickupLocation = { id: string; name: string; address: string; contact: string; username: string; isActive?: boolean; createdAt?: string; updatedAt?: string };
 
-export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "completed" | "cancelled";
+export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "completed" | "collected" | "cancelled";
 
 export type AdminOrder = {
   id: string;
@@ -71,6 +72,8 @@ export type AdminOrder = {
     locationId?: string;
     locationName?: string;
     address?: string;
+    pickupLocationId?: string;
+    pickupLocation?: Omit<PickupLocation, "username"> | null;
     preferredDate?: string;
     preferredTime?: string;
   };
@@ -109,12 +112,11 @@ export type AdminOrder = {
   statusHistory?: Array<{ status: OrderStatus | string; at: string }>;
   notification?: { status: "sent" | "skipped" | "failed"; reason?: string; id?: string };
   assignedDriver?: { id: string; name: string; contact: string } | null;
+  assignedPickupLocation?: Omit<PickupLocation, "username"> | null;
   payment?: {
     method?: string;
     provider?: string;
     status?: string;
-    stripeSessionId?: string;
-    stripePaymentIntentId?: string;
     currency?: string;
     amount?: number;
     paidAt?: string;
@@ -179,6 +181,9 @@ export function updateAdminOrderStatus(token: string, id: string, status: OrderS
 export function fetchDriverOrders(token: string) {
   return apiFetch<AdminOrder[]>("/api/driver/orders", { headers: { Authorization: `Bearer ${token}` } });
 }
+
+export function fetchPickupOrders(token: string) { return apiFetch<AdminOrder[]>("/api/pickup-location/orders", { headers: { Authorization: `Bearer ${token}` } }); }
+export function markPickupOrderCollected(token: string, id: string) { return apiFetch<AdminOrder>(`/api/pickup-location/orders/${encodeURIComponent(id)}/collected`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } }); }
 
 export function markDriverOrderDelivered(token: string, id: string) {
   return apiFetch<AdminOrder>(`/api/driver/orders/${encodeURIComponent(id)}/delivered`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } });

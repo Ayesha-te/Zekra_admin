@@ -18,6 +18,7 @@ import {
   Save,
   Search,
   ShoppingBag,
+  Store,
   Trash2,
   Truck,
   UserRound,
@@ -30,11 +31,14 @@ import {
   productImageError,
   fetchAdminOrders,
   fetchDriverOrders,
+  fetchPickupOrders,
+  markPickupOrderCollected,
   markDriverOrderDelivered,
   type AdminOrder,
   type DeliveryLocation,
   type Coupon,
   type Driver,
+  type PickupLocation,
   type OrderStatus,
   type Product,
   type ProductSizeOption,
@@ -77,7 +81,13 @@ type ProductSizeForm = {
   price: string;
   originalPrice: string;
 };
-type AdminTab = "orders" | "products" | "locations" | "coupons" | "drivers";
+type AdminTab =
+  | "orders"
+  | "products"
+  | "locations"
+  | "pickup_locations"
+  | "coupons"
+  | "drivers";
 type OrderFilter = OrderStatus | "all";
 
 const emptyLocationForm = {
@@ -88,7 +98,21 @@ const emptyLocationForm = {
 
 type LocationForm = typeof emptyLocationForm;
 const emptyCouponForm = { code: "", percentageOff: "", isActive: true };
-const emptyDriverForm = { name: "", username: "", contact: "", password: "", isActive: true };
+const emptyDriverForm = {
+  name: "",
+  username: "",
+  contact: "",
+  password: "",
+  isActive: true,
+};
+const emptyPickupForm = {
+  name: "",
+  address: "",
+  contact: "",
+  username: "",
+  password: "",
+  isActive: true,
+};
 
 function generatedImageAlt(nameValue: string, categoryValue: string) {
   const displayName = nameValue.trim().replace(/\s*\|\s*/g, " - ");
@@ -96,10 +120,14 @@ function generatedImageAlt(nameValue: string, categoryValue: string) {
   const lowerName = displayName.toLowerCase();
   const lowerCategory = category.toLowerCase();
   if (!displayName) return category || "Zekra Sweets product";
-  return lowerCategory && !lowerName.includes(lowerCategory) ? `${displayName} - ${category}` : displayName;
+  return lowerCategory && !lowerName.includes(lowerCategory)
+    ? `${displayName} - ${category}`
+    : displayName;
 }
 
-function productImageUrls(product?: Pick<Product, "imageUrl" | "imageUrls"> | null) {
+function productImageUrls(
+  product?: Pick<Product, "imageUrl" | "imageUrls"> | null,
+) {
   if (!product) return [];
 
   return [
@@ -111,9 +139,13 @@ function productImageUrls(product?: Pick<Product, "imageUrl" | "imageUrls"> | nu
   ];
 }
 
-function productSizes(product?: Pick<Product, "sizes" | "price" | "originalPrice"> | null) {
+function productSizes(
+  product?: Pick<Product, "sizes" | "price" | "originalPrice"> | null,
+) {
   const sizes = product?.sizes || [];
-  return sizes.filter((size) => size.label && Number.isFinite(Number(size.price)));
+  return sizes.filter(
+    (size) => size.label && Number.isFinite(Number(size.price)),
+  );
 }
 
 function productPriceSummary(product: Product) {
@@ -126,7 +158,9 @@ function productPriceSummary(product: Product) {
     .map(
       (size) =>
         `${size.label}: AED ${Number(size.price).toFixed(2)}${
-          size.originalPrice ? ` / old AED ${Number(size.originalPrice).toFixed(2)}` : ""
+          size.originalPrice
+            ? ` / old AED ${Number(size.originalPrice).toFixed(2)}`
+            : ""
         }`,
     )
     .join(" • ");
@@ -134,7 +168,8 @@ function productPriceSummary(product: Product) {
 
 function durationFieldsFromHours(hours: number | null | undefined) {
   const value = Math.max(0, Number(hours) || 0);
-  if (value > 0 && value < 1) return { value: String(Math.round(value * 60)), unit: "minutes" };
+  if (value > 0 && value < 1)
+    return { value: String(Math.round(value * 60)), unit: "minutes" };
   if (value > 0 && value % 24 === 0) {
     return { value: String(value / 24), unit: "days" };
   }
@@ -159,13 +194,18 @@ function sizeFormsFromProduct(product: Product): ProductSizeForm[] {
 
 function sizePayload(sizes: ProductSizeForm[]): ProductSizeOption[] {
   return sizes
-    .filter((size) => size.label.trim() || size.price.trim() || size.originalPrice.trim())
+    .filter(
+      (size) =>
+        size.label.trim() || size.price.trim() || size.originalPrice.trim(),
+    )
     .map((size) => ({
       id: size.id,
       label: size.label.trim(),
       price: Number(size.price),
-      originalPrice: size.originalPrice.trim() ? Number(size.originalPrice) : null,
-    }))
+      originalPrice: size.originalPrice.trim()
+        ? Number(size.originalPrice)
+        : null,
+    }));
 }
 
 function statusTone(status: OrderStatus) {
@@ -181,12 +221,17 @@ function statusTone(status: OrderStatus) {
     case "out_for_delivery":
       return "border-indigo-200 bg-indigo-50 text-indigo-800";
     case "completed":
+    case "collected":
       return "border-green-200 bg-green-50 text-green-800";
     case "cancelled":
       return "border-rose-200 bg-rose-50 text-rose-800";
     default:
       return "border-border bg-muted text-muted-foreground";
   }
+}
+
+function visibleOrderStatus(order: AdminOrder) {
+  return orderStatusLabels[order.status];
 }
 
 function activeTabClass(active: boolean) {
@@ -224,13 +269,20 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AdminTab>("orders");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [deliveryLocations, setDeliveryLocations] = useState<DeliveryLocation[]>([]);
+  const [deliveryLocations, setDeliveryLocations] = useState<
+    DeliveryLocation[]
+  >([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [form, setForm] = useState<ProductForm>(emptyForm);
-  const [productSizeForms, setProductSizeForms] = useState<ProductSizeForm[]>([]);
-  const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocationForm);
+  const [productSizeForms, setProductSizeForms] = useState<ProductSizeForm[]>(
+    [],
+  );
+  const [locationForm, setLocationForm] =
+    useState<LocationForm>(emptyLocationForm);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(
+    null,
+  );
   const [images, setImages] = useState<File[]>([]);
   const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
@@ -241,7 +293,8 @@ export default function App() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [orderBusyId, setOrderBusyId] = useState<string | null>(null);
   const [orderSearch, setOrderSearch] = useState("");
-  const [orderStatusFilter, setOrderStatusFilter] = useState<OrderFilter>("all");
+  const [orderStatusFilter, setOrderStatusFilter] =
+    useState<OrderFilter>("all");
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [locationsLoading, setLocationsLoading] = useState(false);
@@ -253,6 +306,12 @@ export default function App() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [driverForm, setDriverForm] = useState(emptyDriverForm);
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
+  const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
+  const [pickupForm, setPickupForm] = useState(emptyPickupForm);
+  const [editingPickupId, setEditingPickupId] = useState<string | null>(null);
+  const [pickupOrderSelections, setPickupOrderSelections] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     document.title = "Admin - Zekra Sweets";
@@ -265,12 +324,20 @@ export default function App() {
 
   useEffect(() => {
     if (!token) return;
-    if (role === "driver") { loadDriverOrders(token); return; }
+    if (role === "driver") {
+      loadDriverOrders(token);
+      return;
+    }
+    if (role === "pickup_location") {
+      loadPickupOrders(token);
+      return;
+    }
     loadOrders(token);
     loadProducts(token);
     loadDeliveryLocations(token);
     loadCoupons(token);
     loadDrivers(token);
+    loadPickupLocations(token);
   }, [token, role]);
 
   const editingProduct = useMemo(
@@ -291,7 +358,8 @@ export default function App() {
     const query = orderSearch.trim().toLowerCase();
 
     return orders.filter((order) => {
-      const matchesStatus = orderStatusFilter === "all" || order.status === orderStatusFilter;
+      const matchesStatus =
+        orderStatusFilter === "all" || order.status === orderStatusFilter;
       const matchesSearch = !query || orderSearchText(order).includes(query);
       return matchesStatus && matchesSearch;
     });
@@ -299,7 +367,9 @@ export default function App() {
 
   const activeOrder = useMemo(() => {
     if (selectedOrderId) {
-      const selectedVisibleOrder = filteredOrders.find((order) => order.id === selectedOrderId);
+      const selectedVisibleOrder = filteredOrders.find(
+        (order) => order.id === selectedOrderId,
+      );
       if (selectedVisibleOrder) return selectedVisibleOrder;
     }
 
@@ -307,7 +377,10 @@ export default function App() {
   }, [filteredOrders, selectedOrderId]);
 
   const detailOrder = useMemo(
-    () => (detailOrderId ? orders.find((order) => order.id === detailOrderId) || null : null),
+    () =>
+      detailOrderId
+        ? orders.find((order) => order.id === detailOrderId) || null
+        : null,
     [detailOrderId, orders],
   );
 
@@ -323,17 +396,42 @@ export default function App() {
   }, [detailOrderId]);
 
   const orderMetrics = useMemo(() => {
-    const openOrders = orders.filter((order) => order.status !== "completed" && order.status !== "cancelled").length;
-    const completedOrders = orders.filter((order) => order.status === "completed").length;
+    const openOrders = orders.filter(
+      (order) =>
+        !["completed", "collected", "cancelled"].includes(order.status),
+    ).length;
+    const completedOrders = orders.filter(
+      (order) => order.status === "completed" || order.status === "collected",
+    ).length;
     const revenue = orders
       .filter((order) => order.status !== "cancelled")
       .reduce((sum, order) => sum + orderTotal(order), 0);
 
     return [
-      { label: "Total orders", value: String(orders.length), detail: "Loaded in admin", icon: ClipboardList },
-      { label: "Open orders", value: String(openOrders), detail: "New to ready", icon: Truck },
-      { label: "Completed", value: String(completedOrders), detail: "Finished orders", icon: CheckCircle2 },
-      { label: "Total revenue", value: formatMoney(revenue), detail: "Excluding cancelled", icon: PackageCheck },
+      {
+        label: "Total orders",
+        value: String(orders.length),
+        detail: "Loaded in admin",
+        icon: ClipboardList,
+      },
+      {
+        label: "Open orders",
+        value: String(openOrders),
+        detail: "New to ready",
+        icon: Truck,
+      },
+      {
+        label: "Completed",
+        value: String(completedOrders),
+        detail: "Finished orders",
+        icon: CheckCircle2,
+      },
+      {
+        label: "Total revenue",
+        value: formatMoney(revenue),
+        detail: "Excluding cancelled",
+        icon: PackageCheck,
+      },
     ];
   }, [orders]);
 
@@ -343,10 +441,14 @@ export default function App() {
       const nextOrders = await fetchAdminOrders(authToken);
       setOrders(nextOrders);
       setSelectedOrderId((currentId) =>
-        currentId && nextOrders.some((order) => order.id === currentId) ? currentId : nextOrders[0]?.id ?? null,
+        currentId && nextOrders.some((order) => order.id === currentId)
+          ? currentId
+          : (nextOrders[0]?.id ?? null),
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load orders");
+      setMessage(
+        error instanceof Error ? error.message : "Could not load orders",
+      );
     } finally {
       setOrdersLoading(false);
     }
@@ -360,7 +462,9 @@ export default function App() {
         }),
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load products");
+      setMessage(
+        error instanceof Error ? error.message : "Could not load products",
+      );
     }
   }
 
@@ -373,82 +477,339 @@ export default function App() {
         }),
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load delivery locations");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not load delivery locations",
+      );
     } finally {
       setLocationsLoading(false);
     }
   }
 
   async function loadCoupons(authToken = token) {
-    try { setCoupons(await apiFetch<Coupon[]>("/api/admin/coupons", { headers: { Authorization: `Bearer ${authToken}` } })); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Could not load coupons"); }
+    try {
+      setCoupons(
+        await apiFetch<Coupon[]>("/api/admin/coupons", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        }),
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not load coupons",
+      );
+    }
   }
 
   async function loadDrivers(authToken = token) {
-    try { setDrivers(await apiFetch<Driver[]>("/api/admin/drivers", { headers: { Authorization: `Bearer ${authToken}` } })); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Could not load drivers"); }
+    try {
+      setDrivers(
+        await apiFetch<Driver[]>("/api/admin/drivers", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        }),
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not load drivers",
+      );
+    }
   }
 
   async function loadDriverOrders(authToken = token) {
     setOrdersLoading(true);
-    try { setOrders(await fetchDriverOrders(authToken)); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Could not load assigned orders"); }
-    finally { setOrdersLoading(false); }
+    try {
+      setOrders(await fetchDriverOrders(authToken));
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not load assigned orders",
+      );
+    } finally {
+      setOrdersLoading(false);
+    }
+  }
+
+  async function loadPickupLocations(authToken = token) {
+    try {
+      setPickupLocations(
+        await apiFetch<PickupLocation[]>("/api/admin/pickup-locations", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        }),
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not load pickup locations",
+      );
+    }
+  }
+
+  async function loadPickupOrders(authToken = token) {
+    setOrdersLoading(true);
+    try {
+      setOrders(await fetchPickupOrders(authToken));
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not load pickup orders",
+      );
+    } finally {
+      setOrdersLoading(false);
+    }
+  }
+
+  async function savePickupLocation(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      await apiFetch<PickupLocation>(
+        editingPickupId
+          ? `/api/admin/pickup-locations/${editingPickupId}`
+          : "/api/admin/pickup-locations",
+        {
+          method: editingPickupId ? "PUT" : "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(pickupForm),
+        },
+      );
+      setPickupForm(emptyPickupForm);
+      setEditingPickupId(null);
+      setMessage("Pickup location saved.");
+      await loadPickupLocations();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save pickup location",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deletePickupLocation(id: string) {
+    if (!confirm("Delete this pickup location account?")) return;
+    try {
+      await apiFetch(`/api/admin/pickup-locations/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMessage("Pickup location deleted.");
+      await loadPickupLocations();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not delete pickup location",
+      );
+    }
+  }
+
+  async function assignPickupLocation(
+    orderId: string,
+    pickupLocationId: string,
+  ) {
+    if (!pickupLocationId) return;
+    setOrderBusyId(orderId);
+    try {
+      const updated = await apiFetch<AdminOrder>(
+        `/api/admin/orders/${encodeURIComponent(orderId)}/assign-pickup-location`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ pickupLocationId }),
+        },
+      );
+      setOrders((current) =>
+        current.map((order) => (order.id === updated.id ? updated : order)),
+      );
+      setMessage(
+        `Order ready at ${updated.assignedPickupLocation?.name}. Customer email sent.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not assign pickup location",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
+  }
+
+  function pickupSelection(order: AdminOrder) {
+    return (
+      pickupOrderSelections[order.id] ??
+      order.assignedPickupLocation?.id ??
+      order.fulfillment.pickupLocationId ??
+      ""
+    );
   }
 
   async function saveDriver(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage("");
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
     try {
-      await apiFetch<Driver>(editingDriverId ? `/api/admin/drivers/${editingDriverId}` : "/api/admin/drivers", { method: editingDriverId ? "PUT" : "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(driverForm) });
-      setDriverForm(emptyDriverForm); setEditingDriverId(null); setMessage("Driver saved."); await loadDrivers();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save driver"); }
-    finally { setBusy(false); }
+      await apiFetch<Driver>(
+        editingDriverId
+          ? `/api/admin/drivers/${editingDriverId}`
+          : "/api/admin/drivers",
+        {
+          method: editingDriverId ? "PUT" : "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(driverForm),
+        },
+      );
+      setDriverForm(emptyDriverForm);
+      setEditingDriverId(null);
+      setMessage("Driver saved.");
+      await loadDrivers();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not save driver",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function deleteDriver(id: string) {
     if (!confirm("Delete this driver account?")) return;
-    try { await apiFetch(`/api/admin/drivers/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); setMessage("Driver deleted."); await loadDrivers(); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete driver"); }
+    try {
+      await apiFetch(`/api/admin/drivers/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMessage("Driver deleted.");
+      await loadDrivers();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not delete driver",
+      );
+    }
   }
 
   async function assignDriver(orderId: string, driverId: string) {
     if (!driverId) return;
     setOrderBusyId(orderId);
     try {
-      const updated = await apiFetch<AdminOrder>(`/api/admin/orders/${encodeURIComponent(orderId)}/assign-driver`, { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ driverId }) });
-      setOrders((current) => current.map((order) => order.id === updated.id ? updated : order)); setMessage(`Order assigned to ${updated.assignedDriver?.name}. Customer email sent.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not assign driver"); }
-    finally { setOrderBusyId(null); }
+      const updated = await apiFetch<AdminOrder>(
+        `/api/admin/orders/${encodeURIComponent(orderId)}/assign-driver`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ driverId }),
+        },
+      );
+      setOrders((current) =>
+        current.map((order) => (order.id === updated.id ? updated : order)),
+      );
+      setMessage(
+        `Order assigned to ${updated.assignedDriver?.name}. Customer email sent.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not assign driver",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
   }
 
   async function confirmOrder(orderId: string) {
-    setOrderBusyId(orderId); setMessage("");
+    setOrderBusyId(orderId);
+    setMessage("");
     try {
-      const updated = await apiFetch<AdminOrder>(`/api/admin/orders/${encodeURIComponent(orderId)}/confirm`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } });
-      setOrders((current) => current.map((order) => order.id === updated.id ? updated : order));
-      setMessage("Order confirmed. The customer was emailed and making time has started.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not confirm order"); }
-    finally { setOrderBusyId(null); }
+      const updated = await apiFetch<AdminOrder>(
+        `/api/admin/orders/${encodeURIComponent(orderId)}/confirm`,
+        { method: "PUT", headers: { Authorization: `Bearer ${token}` } },
+      );
+      setOrders((current) =>
+        current.map((order) => (order.id === updated.id ? updated : order)),
+      );
+      setMessage(
+        "Order confirmed. The customer was emailed and making time has started.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not confirm order",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
   }
 
   async function saveCoupon(event: FormEvent) {
-    event.preventDefault(); setCouponBusy(true); setMessage("");
+    event.preventDefault();
+    setCouponBusy(true);
+    setMessage("");
     try {
-      await apiFetch<Coupon>(editingCouponId ? `/api/admin/coupons/${editingCouponId}` : "/api/admin/coupons", {
-        method: editingCouponId ? "PUT" : "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...couponForm, percentageOff: Number(couponForm.percentageOff) }),
-      });
-      setCouponForm(emptyCouponForm); setEditingCouponId(null); setMessage(editingCouponId ? "Coupon updated." : "Coupon added."); await loadCoupons();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save coupon"); }
-    finally { setCouponBusy(false); }
+      await apiFetch<Coupon>(
+        editingCouponId
+          ? `/api/admin/coupons/${editingCouponId}`
+          : "/api/admin/coupons",
+        {
+          method: editingCouponId ? "PUT" : "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...couponForm,
+            percentageOff: Number(couponForm.percentageOff),
+          }),
+        },
+      );
+      setCouponForm(emptyCouponForm);
+      setEditingCouponId(null);
+      setMessage(editingCouponId ? "Coupon updated." : "Coupon added.");
+      await loadCoupons();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not save coupon",
+      );
+    } finally {
+      setCouponBusy(false);
+    }
   }
 
-  function editCoupon(coupon: Coupon) { setEditingCouponId(coupon.id); setCouponForm({ code: coupon.code, percentageOff: String(coupon.percentageOff), isActive: coupon.isActive !== false }); }
+  function editCoupon(coupon: Coupon) {
+    setEditingCouponId(coupon.id);
+    setCouponForm({
+      code: coupon.code,
+      percentageOff: String(coupon.percentageOff),
+      isActive: coupon.isActive !== false,
+    });
+  }
   async function deleteCoupon(id: string) {
     if (!window.confirm("Delete this coupon?")) return;
-    try { await apiFetch(`/api/admin/coupons/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); setMessage("Coupon deleted."); await loadCoupons(); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete coupon"); }
+    try {
+      await apiFetch(`/api/admin/coupons/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMessage("Coupon deleted.");
+      await loadCoupons();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not delete coupon",
+      );
+    }
   }
 
   async function login(event: FormEvent) {
@@ -456,11 +817,14 @@ export default function App() {
     setBusy(true);
     setMessage("");
     try {
-      const result = await apiFetch<{ token: string; role: string }>("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
+      const result = await apiFetch<{ token: string; role: string }>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        },
+      );
       localStorage.setItem("adminToken", result.token);
       localStorage.setItem("adminRole", result.role);
       setToken(result.token);
@@ -479,25 +843,32 @@ export default function App() {
     setMessage("");
 
     const payload = new FormData();
-    Object.entries(form).forEach(([key, value]) => payload.append(key, String(value)));
+    Object.entries(form).forEach(([key, value]) =>
+      payload.append(key, String(value)),
+    );
     payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
     payload.append("imageUrls", JSON.stringify(existingImageUrls));
     if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
     images.forEach((file) => payload.append("images", file));
 
     try {
-      await apiFetch<Product>(editingId ? `/api/admin/products/${editingId}` : "/api/admin/products", {
-        method: editingId ? "PUT" : "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: payload,
-      });
+      await apiFetch<Product>(
+        editingId ? `/api/admin/products/${editingId}` : "/api/admin/products",
+        {
+          method: editingId ? "PUT" : "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: payload,
+        },
+      );
       resetProductForm();
       setEditingId(null);
       setImages([]);
       setMessage("Product saved.");
       await loadProducts();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save product");
+      setMessage(
+        error instanceof Error ? error.message : "Could not save product",
+      );
     } finally {
       setBusy(false);
     }
@@ -512,12 +883,16 @@ export default function App() {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      setProducts((currentProducts) => currentProducts.filter((product) => product.id !== id));
+      setProducts((currentProducts) =>
+        currentProducts.filter((product) => product.id !== id),
+      );
       if (editingId === id) resetProductForm();
       setMessage("Product deleted.");
       await loadProducts();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not delete product");
+      setMessage(
+        error instanceof Error ? error.message : "Could not delete product",
+      );
     } finally {
       setBusy(false);
     }
@@ -553,7 +928,9 @@ export default function App() {
     setImages([]);
   }
 
-  function updateProductIdentity(updates: Partial<Pick<ProductForm, "name" | "category">>) {
+  function updateProductIdentity(
+    updates: Partial<Pick<ProductForm, "name" | "category">>,
+  ) {
     setForm((currentForm) => ({ ...currentForm, ...updates }));
   }
 
@@ -564,11 +941,15 @@ export default function App() {
   }
 
   function removeExistingImage(url: string) {
-    setExistingImageUrls((currentUrls) => currentUrls.filter((currentUrl) => currentUrl !== url));
+    setExistingImageUrls((currentUrls) =>
+      currentUrls.filter((currentUrl) => currentUrl !== url),
+    );
   }
 
   function removeSelectedImage(index: number) {
-    setImages((currentImages) => currentImages.filter((_, currentIndex) => currentIndex !== index));
+    setImages((currentImages) =>
+      currentImages.filter((_, currentIndex) => currentIndex !== index),
+    );
   }
 
   function addProductSize() {
@@ -587,7 +968,9 @@ export default function App() {
   }
 
   function removeProductSize(index: number) {
-    setProductSizeForms((currentSizes) => currentSizes.filter((_, currentIndex) => currentIndex !== index));
+    setProductSizeForms((currentSizes) =>
+      currentSizes.filter((_, currentIndex) => currentIndex !== index),
+    );
   }
 
   async function saveDeliveryLocation(event: FormEvent) {
@@ -622,10 +1005,18 @@ export default function App() {
       );
       setLocationForm(emptyLocationForm);
       setEditingLocationId(null);
-      setMessage(editingLocationId ? "Delivery location updated." : "Delivery location added.");
+      setMessage(
+        editingLocationId
+          ? "Delivery location updated."
+          : "Delivery location added.",
+      );
       await loadDeliveryLocations();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save delivery location");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save delivery location",
+      );
     } finally {
       setLocationBusy(false);
     }
@@ -649,21 +1040,28 @@ export default function App() {
     setLocationBusyId(location.id);
     setMessage("");
     try {
-      await apiFetch<DeliveryLocation>(`/api/admin/delivery-locations/${location.id}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+      await apiFetch<DeliveryLocation>(
+        `/api/admin/delivery-locations/${location.id}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: location.name,
+            charge: Number(location.charge),
+            isActive: !(location.isActive !== false),
+          }),
         },
-        body: JSON.stringify({
-          name: location.name,
-          charge: Number(location.charge),
-          isActive: !(location.isActive !== false),
-        }),
-      });
+      );
       await loadDeliveryLocations();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update delivery location");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not update delivery location",
+      );
     } finally {
       setLocationBusyId(null);
     }
@@ -682,7 +1080,11 @@ export default function App() {
       setMessage("Delivery location deleted.");
       await loadDeliveryLocations();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not delete delivery location");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not delete delivery location",
+      );
     } finally {
       setLocationBusyId(null);
     }
@@ -698,13 +1100,23 @@ export default function App() {
       <div>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <span className={`inline-flex rounded-xl border px-3 py-1 text-xs font-semibold ${statusTone(order.status)}`}>
-              {orderStatusLabels[order.status]}
+            <span
+              className={`inline-flex rounded-xl border px-3 py-1 text-xs font-semibold ${statusTone(order.status)}`}
+            >
+              {visibleOrderStatus(order)}
             </span>
-            <h3 className="mt-3 break-all font-mono text-sm font-semibold">{order.id}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+            <h3 className="mt-3 break-all font-mono text-sm font-semibold">
+              {order.id}
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {formatDateTime(order.createdAt)}
+            </p>
           </div>
-          <button type="button" onClick={() => downloadOrderPdf(order)} className={actionButtonClass()}>
+          <button
+            type="button"
+            onClick={() => downloadOrderPdf(order)}
+            className={actionButtonClass()}
+          >
             <Download className="h-4 w-4" />
             PDF
           </button>
@@ -716,50 +1128,209 @@ export default function App() {
             <span>{Math.round(Number(order.progressPercent || 0))}%</span>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, Number(order.progressPercent || 0)))}%` }} />
+            <div
+              className="h-full rounded-full bg-primary"
+              style={{
+                width: `${Math.max(0, Math.min(100, Number(order.progressPercent || 0)))}%`,
+              }}
+            />
           </div>
           <dl className="mt-3 grid gap-2 text-xs">
-            <DetailRow label="Prep complete" value={formatDateTime(order.timeline?.preparationEndsAt)} />
-            <DetailRow label="Confirmed" value={formatDateTime(order.timeline?.confirmedAt)} />
+            <DetailRow
+              label="Prep complete"
+              value={formatDateTime(order.timeline?.preparationEndsAt)}
+            />
+            <DetailRow
+              label="Confirmed"
+              value={formatDateTime(order.timeline?.confirmedAt)}
+            />
           </dl>
-          {order.statusHistory && order.statusHistory.length > 0 && <div className="mt-4 border-t border-border pt-3"><div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Status updates</div><div className="mt-2 space-y-2">{order.statusHistory.map((entry, index) => <div key={`${entry.status}-${entry.at}-${index}`} className="flex justify-between gap-3 text-xs"><span className="font-semibold">{orderStatusLabels[entry.status as OrderStatus] || entry.status}</span><span className="text-muted-foreground">{formatDateTime(entry.at)}</span></div>)}</div></div>}
+          {order.statusHistory && order.statusHistory.length > 0 && (
+            <div className="mt-4 border-t border-border pt-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Status updates
+              </div>
+              <div className="mt-2 space-y-2">
+                {order.statusHistory.map((entry, index) => (
+                  <div
+                    key={`${entry.status}-${entry.at}-${index}`}
+                    className="flex justify-between gap-3 text-xs"
+                  >
+                    <span className="font-semibold">
+                      {orderStatusLabels[entry.status as OrderStatus] ||
+                        entry.status}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {formatDateTime(entry.at)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-5 space-y-5 text-sm">
-          <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order confirmation</h4><p className="mt-1 text-sm text-muted-foreground">Confirming emails the customer and starts the product making time.</p><button type="button" onClick={() => confirmOrder(order.id)} disabled={orderBusyId === order.id || Boolean(order.statusHistory?.some((entry) => entry.status === "confirmed"))} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />{order.statusHistory?.some((entry) => entry.status === "confirmed") ? "Order confirmed" : "Confirm order"}</button></section>
-          {fulfillmentMode(order) === "delivery" && <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order assigned to</h4>{order.assignedDriver && <p className="mt-1 text-sm text-muted-foreground">Current: {order.assignedDriver.name} - {order.assignedDriver.contact}</p>}<select value={order.assignedDriver?.id || ""} onChange={(event) => assignDriver(order.id, event.target.value)} disabled={orderBusyId === order.id} className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"><option value="">Select driver and send order</option>{drivers.filter((driver) => driver.isActive !== false).map((driver) => <option key={driver.id} value={driver.id}>{driver.name} - {driver.contact}</option>)}</select><p className="mt-2 text-xs text-muted-foreground">Assigning sends the customer an out-for-delivery email with driver details.</p></section>}
+          <section className="rounded-2xl border border-border bg-card p-4">
+            <h4 className="font-display text-lg">Order confirmation</h4>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Confirming emails the customer and starts the product making time.
+            </p>
+            <button
+              type="button"
+              onClick={() => confirmOrder(order.id)}
+              disabled={
+                orderBusyId === order.id ||
+                Boolean(
+                  order.statusHistory?.some(
+                    (entry) => entry.status === "confirmed",
+                  ),
+                )
+              }
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {order.statusHistory?.some(
+                (entry) => entry.status === "confirmed",
+              )
+                ? "Order confirmed"
+                : "Confirm order"}
+            </button>
+          </section>
+          {fulfillmentMode(order) === "delivery" && (
+            <section className="rounded-2xl border border-border bg-card p-4">
+              <h4 className="font-display text-lg">Order assigned to</h4>
+              {order.assignedDriver && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Current: {order.assignedDriver.name} -{" "}
+                  {order.assignedDriver.contact}
+                </p>
+              )}
+              <select
+                value={order.assignedDriver?.id || ""}
+                onChange={(event) => assignDriver(order.id, event.target.value)}
+                disabled={orderBusyId === order.id}
+                className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"
+              >
+                <option value="">Select driver and send order</option>
+                {drivers
+                  .filter((driver) => driver.isActive !== false)
+                  .map((driver) => (
+                    <option key={driver.id} value={driver.id}>
+                      {driver.name} - {driver.contact}
+                    </option>
+                  ))}
+              </select>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Assigning sends the customer an out-for-delivery email with
+                driver details.
+              </p>
+            </section>
+          )}
+          {fulfillmentMode(order) === "pickup" && (
+            <section className="rounded-2xl border border-border bg-card p-4">
+              <h4 className="font-display text-lg">
+                Assign pickup location / Ready for pickup
+              </h4>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Customer selected:{" "}
+                {order.fulfillment.pickupLocation?.name ||
+                  order.fulfillment.locationName ||
+                  "-"}
+              </p>
+              <select
+                value={pickupSelection(order)}
+                onChange={(event) =>
+                  setPickupOrderSelections((current) => ({
+                    ...current,
+                    [order.id]: event.target.value,
+                  }))
+                }
+                disabled={
+                  orderBusyId === order.id ||
+                  order.status === "ready" ||
+                  order.status === "collected"
+                }
+                className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"
+              >
+                <option value="">Select pickup location</option>
+                {pickupLocations
+                  .filter((location) => location.isActive !== false)
+                  .map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name} - {location.address}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                onClick={() =>
+                  assignPickupLocation(order.id, pickupSelection(order))
+                }
+                disabled={
+                  orderBusyId === order.id ||
+                  !pickupSelection(order) ||
+                  order.status === "ready" ||
+                  order.status === "collected"
+                }
+                className="mt-3 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                {order.status === "ready"
+                  ? "Ready for pickup"
+                  : "Assign and mark ready"}
+              </button>
+            </section>
+          )}
           <section>
-            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Customer</h4>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Customer
+            </h4>
             <dl className="mt-3 grid gap-3">
               <DetailRow label="Name" value={order.customer.name || "-"} />
               <DetailRow label="Phone" value={order.customer.phone || "-"} />
-              {order.customer.email && <DetailRow label="Email" value={order.customer.email} />}
-            </dl>
-          </section>
-
-          <section>
-            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Fulfillment</h4>
-            <dl className="mt-3 grid gap-3">
-              <DetailRow label="Type" value={fulfillmentMode(order) === "pickup" ? "Pickup" : "Delivery"} />
-              <DetailRow label="Location" value={order.fulfillment.locationName || "-"} />
-              <DetailRow label="Address" value={order.fulfillment.address || "-"} />
-              {order.notes && <DetailRow label="Notes" value={order.notes} />}
-            </dl>
-          </section>
-
-          <section>
-            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Payment</h4>
-            <dl className="mt-3 grid gap-3">
-              <DetailRow label="Method" value={paymentMethodLabel(order)} />
-              <DetailRow label="Status" value={paymentStatusLabel(order)} />
-              {order.payment?.stripeSessionId && (
-                <DetailRow label="Stripe" value={order.payment.stripeSessionId} />
+              {order.customer.email && (
+                <DetailRow label="Email" value={order.customer.email} />
               )}
             </dl>
           </section>
 
           <section>
-            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Items</h4>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Fulfillment
+            </h4>
+            <dl className="mt-3 grid gap-3">
+              <DetailRow
+                label="Type"
+                value={
+                  fulfillmentMode(order) === "pickup" ? "Pickup" : "Delivery"
+                }
+              />
+              <DetailRow
+                label="Location"
+                value={order.fulfillment.locationName || "-"}
+              />
+              <DetailRow
+                label="Address"
+                value={order.fulfillment.address || "-"}
+              />
+              {order.notes && <DetailRow label="Notes" value={order.notes} />}
+            </dl>
+          </section>
+
+          <section>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Payment
+            </h4>
+            <dl className="mt-3 grid gap-3">
+              <DetailRow label="Method" value={paymentMethodLabel(order)} />
+              <DetailRow label="Status" value={paymentStatusLabel(order)} />
+            </dl>
+          </section>
+
+          <section>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Items
+            </h4>
             <div className="mt-3 overflow-hidden rounded-xl border border-border">
               <div className="hidden grid-cols-[minmax(0,1fr)_46px_82px] gap-2 bg-muted/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:grid">
                 <span>Item</span>
@@ -768,19 +1339,36 @@ export default function App() {
               </div>
               <div className="divide-y divide-border">
                 {order.items.map((item) => (
-                  <div key={`${order.id}-${item.productId || item.id || item.name}-${item.sizeId || item.sizeLabel || "regular"}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
+                  <div
+                    key={`${order.id}-${item.productId || item.id || item.name}-${item.sizeId || item.sizeLabel || "regular"}`}
+                    className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]"
+                  >
                     <div className="min-w-0">
                       <p className="break-words font-semibold">{item.name}</p>
-                      {item.sizeLabel && <p className="mt-1 text-xs font-semibold text-caramel">Size: {item.sizeLabel}</p>}
-                      <p className="mt-1 text-xs text-muted-foreground">{formatMoney(item.unitPrice)} each</p>
+                      {item.sizeLabel && (
+                        <p className="mt-1 text-xs font-semibold text-caramel">
+                          Size: {item.sizeLabel}
+                        </p>
+                      )}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatMoney(item.unitPrice)} each
+                      </p>
                     </div>
                     <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
-                      <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Qty</span>
+                      <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">
+                        Qty
+                      </span>
                       {item.quantity}
                     </p>
                     <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
-                      <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Line</span>
-                      {formatMoney(Number(item.lineTotal ?? item.quantity * item.unitPrice))}
+                      <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">
+                        Line
+                      </span>
+                      {formatMoney(
+                        Number(
+                          item.lineTotal ?? item.quantity * item.unitPrice,
+                        ),
+                      )}
                     </p>
                   </div>
                 ))}
@@ -790,10 +1378,25 @@ export default function App() {
 
           <section className="border-t border-border pt-4">
             <div className="space-y-2">
-              <TotalRow label="Subtotal" value={formatMoney(orderSubtotal(order))} />
-              <TotalRow label="Delivery" value={formatMoney(orderDeliveryFee(order))} />
-              {orderDiscount(order) > 0 && <TotalRow label={`Discount${order.coupon?.code ? ` (${order.coupon.code})` : ""}`} value={`-${formatMoney(orderDiscount(order))}`} />}
-              <TotalRow label="Total" value={formatMoney(orderTotal(order))} strong />
+              <TotalRow
+                label="Subtotal"
+                value={formatMoney(orderSubtotal(order))}
+              />
+              <TotalRow
+                label="Delivery"
+                value={formatMoney(orderDeliveryFee(order))}
+              />
+              {orderDiscount(order) > 0 && (
+                <TotalRow
+                  label={`Discount${order.coupon?.code ? ` (${order.coupon.code})` : ""}`}
+                  value={`-${formatMoney(orderDiscount(order))}`}
+                />
+              )}
+              <TotalRow
+                label="Total"
+                value={formatMoney(orderTotal(order))}
+                strong
+              />
             </div>
           </section>
         </div>
@@ -824,17 +1427,26 @@ export default function App() {
             const Icon = metric.icon;
 
             return (
-              <article key={metric.label} className="rounded-2xl border border-border bg-card p-4 shadow-glass">
+              <article
+                key={metric.label}
+                className="rounded-2xl border border-border bg-card p-4 shadow-glass"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{metric.label}</p>
-                    <p className="mt-2 truncate font-display text-3xl leading-none">{metric.value}</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      {metric.label}
+                    </p>
+                    <p className="mt-2 truncate font-display text-3xl leading-none">
+                      {metric.value}
+                    </p>
                   </div>
                   <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-secondary text-primary">
                     <Icon className="h-5 w-5" />
                   </span>
                 </div>
-                <p className="mt-3 text-sm text-muted-foreground">{metric.detail}</p>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {metric.detail}
+                </p>
               </article>
             );
           })}
@@ -855,7 +1467,11 @@ export default function App() {
                 disabled={ordersLoading}
                 className={actionButtonClass()}
               >
-                {ordersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {ordersLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
                 Refresh
               </button>
               <button
@@ -885,7 +1501,9 @@ export default function App() {
               <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <select
                 value={orderStatusFilter}
-                onChange={(event) => setOrderStatusFilter(event.target.value as OrderFilter)}
+                onChange={(event) =>
+                  setOrderStatusFilter(event.target.value as OrderFilter)
+                }
                 className="w-full appearance-none rounded-xl border border-border bg-background px-10 py-3 text-sm font-medium outline-none transition focus:border-primary"
               >
                 <option value="all">All statuses</option>
@@ -936,30 +1554,53 @@ export default function App() {
                         }`}
                       >
                         <div className="min-w-0">
-                          <p className="font-mono text-xs font-semibold text-cocoa break-all">{order.id}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{shortOrderDate(order.createdAt)}</p>
+                          <p className="font-mono text-xs font-semibold text-cocoa break-all">
+                            {order.id}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {shortOrderDate(order.createdAt)}
+                          </p>
                         </div>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{order.customer.name || "Customer"}</p>
-                          <p className="mt-1 truncate text-xs text-muted-foreground">{order.customer.phone || "No phone"}</p>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">{fulfillmentLabel(order)}</p>
+                          <p className="truncate text-sm font-semibold">
+                            {order.customer.name || "Customer"}
+                          </p>
                           <p className="mt-1 truncate text-xs text-muted-foreground">
-                            {order.fulfillment.address || order.fulfillment.preferredDate || "No details"}
+                            {order.customer.phone || "No phone"}
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">
+                            {fulfillmentLabel(order)}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">
+                            {order.fulfillment.address ||
+                              order.fulfillment.preferredDate ||
+                              "No details"}
                           </p>
                         </div>
                         <p className="text-sm font-semibold">
-                          <span className="text-xs font-medium text-muted-foreground lg:hidden">Items </span>
+                          <span className="text-xs font-medium text-muted-foreground lg:hidden">
+                            Items{" "}
+                          </span>
                           {orderItemCount(order)}
                         </p>
-                        <p className="text-sm font-semibold">{formatMoney(orderTotal(order))}</p>
+                        <p className="text-sm font-semibold">
+                          {formatMoney(orderTotal(order))}
+                        </p>
                         <div className="min-w-0">
-                          <span className={`inline-flex rounded-xl border px-3 py-2 text-xs font-semibold ${statusTone(order.status)}`}>
-                            {orderStatusLabels[order.status]}
+                          <span
+                            className={`inline-flex rounded-xl border px-3 py-2 text-xs font-semibold ${statusTone(order.status)}`}
+                          >
+                            {visibleOrderStatus(order)}
                           </span>
                           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, Number(order.progressPercent || 0)))}%` }} />
+                            <div
+                              className="h-full rounded-full bg-primary"
+                              style={{
+                                width: `${Math.max(0, Math.min(100, Number(order.progressPercent || 0)))}%`,
+                              }}
+                            />
                           </div>
                         </div>
                         <div className="flex min-w-0 flex-wrap items-center gap-2 lg:flex-col lg:items-stretch lg:gap-1.5">
@@ -991,13 +1632,23 @@ export default function App() {
                   <div>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <span className={`inline-flex rounded-xl border px-3 py-1 text-xs font-semibold ${statusTone(activeOrder.status)}`}>
-                          {orderStatusLabels[activeOrder.status]}
+                        <span
+                          className={`inline-flex rounded-xl border px-3 py-1 text-xs font-semibold ${statusTone(activeOrder.status)}`}
+                        >
+                          {visibleOrderStatus(activeOrder)}
                         </span>
-                        <h3 className="mt-3 break-all font-mono text-sm font-semibold">{activeOrder.id}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(activeOrder.createdAt)}</p>
+                        <h3 className="mt-3 break-all font-mono text-sm font-semibold">
+                          {activeOrder.id}
+                        </h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {formatDateTime(activeOrder.createdAt)}
+                        </p>
                       </div>
-                      <button type="button" onClick={() => downloadOrderPdf(activeOrder)} className={actionButtonClass()}>
+                      <button
+                        type="button"
+                        onClick={() => downloadOrderPdf(activeOrder)}
+                        className={actionButtonClass()}
+                      >
                         <Download className="h-4 w-4" />
                         PDF
                       </button>
@@ -1006,52 +1657,232 @@ export default function App() {
                     <div className="mt-5 rounded-xl border border-border bg-card p-3">
                       <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                         <span>Order timeline · Dubai time</span>
-                        <span>{Math.round(Number(activeOrder.progressPercent || 0))}%</span>
+                        <span>
+                          {Math.round(Number(activeOrder.progressPercent || 0))}
+                          %
+                        </span>
                       </div>
                       <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, Number(activeOrder.progressPercent || 0)))}%` }} />
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, Number(activeOrder.progressPercent || 0)))}%`,
+                          }}
+                        />
                       </div>
                       <dl className="mt-3 grid gap-2 text-xs">
-                        <DetailRow label="Prep complete" value={formatDateTime(activeOrder.timeline?.preparationEndsAt)} />
-                        <DetailRow label="Confirmed" value={formatDateTime(activeOrder.timeline?.confirmedAt)} />
+                        <DetailRow
+                          label="Prep complete"
+                          value={formatDateTime(
+                            activeOrder.timeline?.preparationEndsAt,
+                          )}
+                        />
+                        <DetailRow
+                          label="Confirmed"
+                          value={formatDateTime(
+                            activeOrder.timeline?.confirmedAt,
+                          )}
+                        />
                       </dl>
                     </div>
 
                     <div className="mt-5 space-y-5 text-sm">
-                      <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order confirmation</h4><p className="mt-1 text-sm text-muted-foreground">Confirming emails the customer and starts making time.</p><button type="button" onClick={() => confirmOrder(activeOrder.id)} disabled={orderBusyId === activeOrder.id || Boolean(activeOrder.statusHistory?.some((entry) => entry.status === "confirmed"))} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />{activeOrder.statusHistory?.some((entry) => entry.status === "confirmed") ? "Order confirmed" : "Confirm order"}</button></section>
-                      {fulfillmentMode(activeOrder) === "delivery" && <section className="rounded-2xl border border-border bg-card p-4"><h4 className="font-display text-lg">Order assigned to</h4>{activeOrder.assignedDriver && <p className="mt-1 text-sm text-muted-foreground">Current: {activeOrder.assignedDriver.name} - {activeOrder.assignedDriver.contact}</p>}<select value={activeOrder.assignedDriver?.id || ""} onChange={(event) => assignDriver(activeOrder.id, event.target.value)} disabled={orderBusyId === activeOrder.id || activeOrder.status === "completed"} className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"><option value="">Select driver and send order</option>{drivers.filter((driver) => driver.isActive !== false).map((driver) => <option key={driver.id} value={driver.id}>{driver.name} - {driver.contact}</option>)}</select><p className="mt-2 text-xs text-muted-foreground">Assignment is the sent-for-delivery transition and emails driver details immediately.</p></section>}
-                      <section>
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Customer</h4>
-                        <dl className="mt-3 grid gap-3">
-                          <DetailRow label="Name" value={activeOrder.customer.name || "-"} />
-                          <DetailRow label="Phone" value={activeOrder.customer.phone || "-"} />
-                          {activeOrder.customer.email && <DetailRow label="Email" value={activeOrder.customer.email} />}
-                        </dl>
+                      <section className="rounded-2xl border border-border bg-card p-4">
+                        <h4 className="font-display text-lg">
+                          Order confirmation
+                        </h4>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Confirming emails the customer and starts making time.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => confirmOrder(activeOrder.id)}
+                          disabled={
+                            orderBusyId === activeOrder.id ||
+                            Boolean(
+                              activeOrder.statusHistory?.some(
+                                (entry) => entry.status === "confirmed",
+                              ),
+                            )
+                          }
+                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {activeOrder.statusHistory?.some(
+                            (entry) => entry.status === "confirmed",
+                          )
+                            ? "Order confirmed"
+                            : "Confirm order"}
+                        </button>
                       </section>
-
+                      {fulfillmentMode(activeOrder) === "delivery" && (
+                        <section className="rounded-2xl border border-border bg-card p-4">
+                          <h4 className="font-display text-lg">
+                            Order assigned to
+                          </h4>
+                          {activeOrder.assignedDriver && (
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              Current: {activeOrder.assignedDriver.name} -{" "}
+                              {activeOrder.assignedDriver.contact}
+                            </p>
+                          )}
+                          <select
+                            value={activeOrder.assignedDriver?.id || ""}
+                            onChange={(event) =>
+                              assignDriver(activeOrder.id, event.target.value)
+                            }
+                            disabled={
+                              orderBusyId === activeOrder.id ||
+                              activeOrder.status === "completed"
+                            }
+                            className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"
+                          >
+                            <option value="">
+                              Select driver and send order
+                            </option>
+                            {drivers
+                              .filter((driver) => driver.isActive !== false)
+                              .map((driver) => (
+                                <option key={driver.id} value={driver.id}>
+                                  {driver.name} - {driver.contact}
+                                </option>
+                              ))}
+                          </select>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Assignment is the sent-for-delivery transition and
+                            emails driver details immediately.
+                          </p>
+                        </section>
+                      )}
+                      {fulfillmentMode(activeOrder) === "pickup" && (
+                        <section className="rounded-2xl border border-border bg-card p-4">
+                          <h4 className="font-display text-lg">
+                            Assign pickup location / Ready for pickup
+                          </h4>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Customer selected:{" "}
+                            {activeOrder.fulfillment.pickupLocation?.name ||
+                              activeOrder.fulfillment.locationName ||
+                              "-"}
+                          </p>
+                          <select
+                            value={pickupSelection(activeOrder)}
+                            onChange={(event) =>
+                              setPickupOrderSelections((current) => ({
+                                ...current,
+                                [activeOrder.id]: event.target.value,
+                              }))
+                            }
+                            disabled={
+                              orderBusyId === activeOrder.id ||
+                              activeOrder.status === "ready" ||
+                              activeOrder.status === "collected"
+                            }
+                            className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"
+                          >
+                            <option value="">Select pickup location</option>
+                            {pickupLocations
+                              .filter((location) => location.isActive !== false)
+                              .map((location) => (
+                                <option key={location.id} value={location.id}>
+                                  {location.name}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              assignPickupLocation(
+                                activeOrder.id,
+                                pickupSelection(activeOrder),
+                              )
+                            }
+                            disabled={
+                              orderBusyId === activeOrder.id ||
+                              !pickupSelection(activeOrder) ||
+                              activeOrder.status === "ready" ||
+                              activeOrder.status === "collected"
+                            }
+                            className="mt-3 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:opacity-50"
+                          >
+                            {activeOrder.status === "ready"
+                              ? "Ready for pickup"
+                              : "Assign and mark ready"}
+                          </button>
+                        </section>
+                      )}
                       <section>
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Fulfillment</h4>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          Customer
+                        </h4>
                         <dl className="mt-3 grid gap-3">
-                          <DetailRow label="Type" value={fulfillmentMode(activeOrder) === "pickup" ? "Pickup" : "Delivery"} />
-                          <DetailRow label="Location" value={activeOrder.fulfillment.locationName || "-"} />
-                          <DetailRow label="Address" value={activeOrder.fulfillment.address || "-"} />
-                          {activeOrder.notes && <DetailRow label="Notes" value={activeOrder.notes} />}
-                        </dl>
-                      </section>
-
-                      <section>
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Payment</h4>
-                        <dl className="mt-3 grid gap-3">
-                          <DetailRow label="Method" value={paymentMethodLabel(activeOrder)} />
-                          <DetailRow label="Status" value={paymentStatusLabel(activeOrder)} />
-                          {activeOrder.payment?.stripeSessionId && (
-                            <DetailRow label="Stripe" value={activeOrder.payment.stripeSessionId} />
+                          <DetailRow
+                            label="Name"
+                            value={activeOrder.customer.name || "-"}
+                          />
+                          <DetailRow
+                            label="Phone"
+                            value={activeOrder.customer.phone || "-"}
+                          />
+                          {activeOrder.customer.email && (
+                            <DetailRow
+                              label="Email"
+                              value={activeOrder.customer.email}
+                            />
                           )}
                         </dl>
                       </section>
 
                       <section>
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Items</h4>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          Fulfillment
+                        </h4>
+                        <dl className="mt-3 grid gap-3">
+                          <DetailRow
+                            label="Type"
+                            value={
+                              fulfillmentMode(activeOrder) === "pickup"
+                                ? "Pickup"
+                                : "Delivery"
+                            }
+                          />
+                          <DetailRow
+                            label="Location"
+                            value={activeOrder.fulfillment.locationName || "-"}
+                          />
+                          <DetailRow
+                            label="Address"
+                            value={activeOrder.fulfillment.address || "-"}
+                          />
+                          {activeOrder.notes && (
+                            <DetailRow
+                              label="Notes"
+                              value={activeOrder.notes}
+                            />
+                          )}
+                        </dl>
+                      </section>
+
+                      <section>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          Payment
+                        </h4>
+                        <dl className="mt-3 grid gap-3">
+                          <DetailRow
+                            label="Method"
+                            value={paymentMethodLabel(activeOrder)}
+                          />
+                          <DetailRow
+                            label="Status"
+                            value={paymentStatusLabel(activeOrder)}
+                          />
+                        </dl>
+                      </section>
+
+                      <section>
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          Items
+                        </h4>
                         <div className="mt-3 overflow-hidden rounded-xl border border-border">
                           <div className="hidden grid-cols-[minmax(0,1fr)_46px_82px] gap-2 bg-muted/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground sm:grid">
                             <span>Item</span>
@@ -1060,19 +1891,39 @@ export default function App() {
                           </div>
                           <div className="divide-y divide-border">
                             {activeOrder.items.map((item) => (
-                              <div key={`${activeOrder.id}-${item.productId || item.id || item.name}-${item.sizeId || item.sizeLabel || "regular"}`} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]">
+                              <div
+                                key={`${activeOrder.id}-${item.productId || item.id || item.name}-${item.sizeId || item.sizeLabel || "regular"}`}
+                                className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_46px_82px]"
+                              >
                                 <div className="min-w-0">
-                                  <p className="break-words font-semibold">{item.name}</p>
-                                  {item.sizeLabel && <p className="mt-1 text-xs font-semibold text-caramel">Size: {item.sizeLabel}</p>}
-                                  <p className="mt-1 text-xs text-muted-foreground">{formatMoney(item.unitPrice)} each</p>
+                                  <p className="break-words font-semibold">
+                                    {item.name}
+                                  </p>
+                                  {item.sizeLabel && (
+                                    <p className="mt-1 text-xs font-semibold text-caramel">
+                                      Size: {item.sizeLabel}
+                                    </p>
+                                  )}
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {formatMoney(item.unitPrice)} each
+                                  </p>
                                 </div>
                                 <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
-                                  <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Qty</span>
+                                  <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">
+                                    Qty
+                                  </span>
                                   {item.quantity}
                                 </p>
                                 <p className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2 py-1 font-semibold sm:block sm:bg-transparent sm:px-0 sm:py-0">
-                                  <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">Line</span>
-                                  {formatMoney(Number(item.lineTotal ?? item.quantity * item.unitPrice))}
+                                  <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:hidden">
+                                    Line
+                                  </span>
+                                  {formatMoney(
+                                    Number(
+                                      item.lineTotal ??
+                                        item.quantity * item.unitPrice,
+                                    ),
+                                  )}
                                 </p>
                               </div>
                             ))}
@@ -1082,10 +1933,25 @@ export default function App() {
 
                       <section className="border-t border-border pt-4">
                         <div className="space-y-2">
-                          <TotalRow label="Subtotal" value={formatMoney(orderSubtotal(activeOrder))} />
-                          <TotalRow label="Delivery" value={formatMoney(orderDeliveryFee(activeOrder))} />
-                          {orderDiscount(activeOrder) > 0 && <TotalRow label={`Discount${activeOrder.coupon?.code ? ` (${activeOrder.coupon.code})` : ""}`} value={`-${formatMoney(orderDiscount(activeOrder))}`} />}
-                          <TotalRow label="Total" value={formatMoney(orderTotal(activeOrder))} strong />
+                          <TotalRow
+                            label="Subtotal"
+                            value={formatMoney(orderSubtotal(activeOrder))}
+                          />
+                          <TotalRow
+                            label="Delivery"
+                            value={formatMoney(orderDeliveryFee(activeOrder))}
+                          />
+                          {orderDiscount(activeOrder) > 0 && (
+                            <TotalRow
+                              label={`Discount${activeOrder.coupon?.code ? ` (${activeOrder.coupon.code})` : ""}`}
+                              value={`-${formatMoney(orderDiscount(activeOrder))}`}
+                            />
+                          )}
+                          <TotalRow
+                            label="Total"
+                            value={formatMoney(orderTotal(activeOrder))}
+                            strong
+                          />
                         </div>
                       </section>
                     </div>
@@ -1121,23 +1987,43 @@ export default function App() {
 
     return (
       <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
-        <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
+        <form
+          onSubmit={saveProduct}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl">{editingId ? "Edit product" : "Add product"}</h2>
+            <h2 className="font-display text-2xl">
+              {editingId ? "Edit product" : "Add product"}
+            </h2>
             {editingId && (
-              <button type="button" onClick={resetProductForm} className="text-sm text-primary">
+              <button
+                type="button"
+                onClick={resetProductForm}
+                className="text-sm text-primary"
+              >
                 New product
               </button>
             )}
           </div>
 
           <label className="mt-5 block text-sm font-medium">Product name</label>
-          <input required value={form.name} onChange={(e) => updateProductIdentity({ name: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+          <input
+            required
+            value={form.name}
+            onChange={(e) => updateProductIdentity({ name: e.target.value })}
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium">Category</label>
-              <select value={form.category} onChange={(e) => updateProductIdentity({ category: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary">
+              <select
+                value={form.category}
+                onChange={(e) =>
+                  updateProductIdentity({ category: e.target.value })
+                }
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+              >
                 <option>Cookies</option>
                 <option>Sweets</option>
                 <option>Rusk</option>
@@ -1146,26 +2032,76 @@ export default function App() {
             </div>
             <div>
               <label className="block text-sm font-medium">Tag</label>
-              <input value={form.tag} placeholder="Offer, Fresh, New" onChange={(e) => setForm({ ...form, tag: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+              <input
+                value={form.tag}
+                placeholder="Offer, Fresh, New"
+                onChange={(e) => setForm({ ...form, tag: e.target.value })}
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+              />
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium">Fallback price AED</label>
-              <input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+              <label className="block text-sm font-medium">
+                Fallback price AED
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium">Fallback old price</label>
-              <input type="number" step="0.01" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: e.target.value })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+              <label className="block text-sm font-medium">
+                Fallback old price
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={form.originalPrice}
+                onChange={(e) =>
+                  setForm({ ...form, originalPrice: e.target.value })
+                }
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+              />
             </div>
           </div>
 
           <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
             <h3 className="font-display text-xl">Order timeline</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Making time starts when the order is confirmed.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Making time starts when the order is confirmed.
+            </p>
             <div className="mt-4 grid gap-4">
-              <div><label className="block text-sm font-medium">Making time</label><div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2"><input type="number" min="0" step="0.25" value={form.preparationTime} onChange={(e) => setForm({ ...form, preparationTime: e.target.value })} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary" /><select value={form.preparationTimeUnit} onChange={(e) => setForm({ ...form, preparationTimeUnit: e.target.value })} className="h-12 rounded-xl border border-border bg-background px-3 text-sm"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></div></div>
+              <div>
+                <label className="block text-sm font-medium">Making time</label>
+                <div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.25"
+                    value={form.preparationTime}
+                    onChange={(e) =>
+                      setForm({ ...form, preparationTime: e.target.value })
+                    }
+                    className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary"
+                  />
+                  <select
+                    value={form.preparationTimeUnit}
+                    onChange={(e) =>
+                      setForm({ ...form, preparationTimeUnit: e.target.value })
+                    }
+                    className="h-12 rounded-xl border border-border bg-background px-3 text-sm"
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1173,9 +2109,15 @@ export default function App() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-display text-xl">Size prices</h3>
-                <p className="mt-1 text-xs text-muted-foreground">Add sizes such as 250g, 500g, 1kg, box, or tray.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Add sizes such as 250g, 500g, 1kg, box, or tray.
+                </p>
               </div>
-              <button type="button" onClick={addProductSize} className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary">
+              <button
+                type="button"
+                onClick={addProductSize}
+                className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary"
+              >
                 <Plus className="h-3.5 w-3.5" /> Add size
               </button>
             </div>
@@ -1187,11 +2129,16 @@ export default function App() {
             ) : (
               <div className="mt-4 grid gap-3">
                 {productSizeForms.map((size, index) => (
-                  <div key={`${size.id || "new"}-${index}`} className="grid gap-2 rounded-xl border border-border bg-card p-3">
+                  <div
+                    key={`${size.id || "new"}-${index}`}
+                    className="grid gap-2 rounded-xl border border-border bg-card p-3"
+                  >
                     <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px_110px_40px]">
                       <input
                         value={size.label}
-                        onChange={(e) => updateProductSize(index, { label: e.target.value })}
+                        onChange={(e) =>
+                          updateProductSize(index, { label: e.target.value })
+                        }
                         placeholder="Size label"
                         className="rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
                       />
@@ -1199,7 +2146,9 @@ export default function App() {
                         type="number"
                         step="0.01"
                         value={size.price}
-                        onChange={(e) => updateProductSize(index, { price: e.target.value })}
+                        onChange={(e) =>
+                          updateProductSize(index, { price: e.target.value })
+                        }
                         placeholder="AED"
                         className="rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
                       />
@@ -1207,7 +2156,11 @@ export default function App() {
                         type="number"
                         step="0.01"
                         value={size.originalPrice}
-                        onChange={(e) => updateProductSize(index, { originalPrice: e.target.value })}
+                        onChange={(e) =>
+                          updateProductSize(index, {
+                            originalPrice: e.target.value,
+                          })
+                        }
                         placeholder="Old AED"
                         className="rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
                       />
@@ -1227,11 +2180,18 @@ export default function App() {
           </div>
 
           <label className="mt-4 block text-sm font-medium">Description</label>
-          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+          <textarea
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            rows={3}
+            className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
 
           <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
             <ImagePlus className="h-5 w-5" />
-            {images.length > 0 ? `${images.length} new image${images.length === 1 ? "" : "s"} selected` : "Add product images"}
+            {images.length > 0
+              ? `${images.length} new image${images.length === 1 ? "" : "s"} selected`
+              : "Add product images"}
             <input
               type="file"
               accept="image/*"
@@ -1247,11 +2207,17 @@ export default function App() {
           {galleryPreviews.length > 0 && (
             <div className="mt-4 grid grid-cols-2 gap-3">
               {galleryPreviews.map((preview, index) => (
-                <div key={preview.key} className="group relative overflow-hidden rounded-2xl border border-border bg-background">
+                <div
+                  key={preview.key}
+                  className="group relative overflow-hidden rounded-2xl border border-border bg-background"
+                >
                   <img
                     src={preview.src}
                     onError={productImageError}
-                    alt={generatedImageAlt(form.name || editingProduct?.name || "", form.category || editingProduct?.category || "")}
+                    alt={generatedImageAlt(
+                      form.name || editingProduct?.name || "",
+                      form.category || editingProduct?.category || "",
+                    )}
                     className="aspect-square w-full object-cover"
                   />
                   {index === 0 && (
@@ -1273,12 +2239,24 @@ export default function App() {
           )}
 
           <label className="mt-4 flex items-center gap-3 text-sm font-medium">
-            <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="h-4 w-4 accent-primary" />
+            <input
+              type="checkbox"
+              checked={form.isActive}
+              onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+              className="h-4 w-4 accent-primary"
+            />
             Show this product on the website
           </label>
 
-          <button disabled={busy} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
-            {editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          <button
+            disabled={busy}
+            className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"
+          >
+            {editingId ? (
+              <Save className="h-4 w-4" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             {busy ? "Saving..." : editingId ? "Save changes" : "Add product"}
           </button>
         </form>
@@ -1286,7 +2264,9 @@ export default function App() {
         <div className="grid gap-4">
           <div>
             <h2 className="font-display text-2xl">Products</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{products.length} configured products</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {products.length} configured products
+            </p>
           </div>
 
           {products.length === 0 ? (
@@ -1299,9 +2279,20 @@ export default function App() {
               const primaryImage = productImages[0] || product.imageUrl;
 
               return (
-                <article key={product.id} className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]">
+                <article
+                  key={product.id}
+                  className="grid gap-4 rounded-3xl border border-border bg-card p-4 shadow-glass sm:grid-cols-[140px_1fr_auto]"
+                >
                   {primaryImage ? (
-                    <img src={assetUrl(primaryImage)} onError={productImageError} alt={product.imageAlt || generatedImageAlt(product.name, product.category)} className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]" />
+                    <img
+                      src={assetUrl(primaryImage)}
+                      onError={productImageError}
+                      alt={
+                        product.imageAlt ||
+                        generatedImageAlt(product.name, product.category)
+                      }
+                      className="aspect-square w-full rounded-2xl object-cover sm:w-[140px]"
+                    />
                   ) : (
                     <div className="grid aspect-square w-full place-items-center rounded-2xl bg-secondary text-primary sm:w-[140px]">
                       <ImagePlus className="h-6 w-6" />
@@ -1309,29 +2300,45 @@ export default function App() {
                   )}
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-caramel">{product.category}</span>
+                      <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-caramel">
+                        {product.category}
+                      </span>
                       {productImages.length > 1 && (
                         <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
                           {productImages.length} images
                         </span>
                       )}
                       {product.isActive === false ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><EyeOff className="h-3.5 w-3.5" /> Hidden</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <EyeOff className="h-3.5 w-3.5" /> Hidden
+                        </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-primary"><Eye className="h-3.5 w-3.5" /> Live</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-primary">
+                          <Eye className="h-3.5 w-3.5" /> Live
+                        </span>
                       )}
                     </div>
-                    <h3 className="mt-3 font-display text-2xl leading-tight">{product.name}</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">{productPriceSummary(product)}</p>
+                    <h3 className="mt-3 font-display text-2xl leading-tight">
+                      {product.name}
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {productPriceSummary(product)}
+                    </p>
                     <p className="mt-2 text-sm text-muted-foreground">
                       Making time: {durationSummary(product.preparationHours)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 sm:flex-col sm:items-stretch">
-                    <button onClick={() => startEdit(product)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
+                    <button
+                      onClick={() => startEdit(product)}
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary"
+                    >
                       <Edit3 className="h-4 w-4" /> Edit
                     </button>
-                    <button onClick={() => deleteProduct(product.id)} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10">
+                    <button
+                      onClick={() => deleteProduct(product.id)}
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10"
+                    >
                       <Trash2 className="h-4 w-4" /> Delete
                     </button>
                   </div>
@@ -1347,7 +2354,10 @@ export default function App() {
   function renderLocationsTab() {
     return (
       <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
-        <form onSubmit={saveDeliveryLocation} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
+        <form
+          onSubmit={saveDeliveryLocation}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-2xl">Delivery locations</h2>
@@ -1356,17 +2366,25 @@ export default function App() {
               </p>
             </div>
             {editingLocationId && (
-              <button type="button" onClick={resetLocationForm} className="text-sm text-primary">
+              <button
+                type="button"
+                onClick={resetLocationForm}
+                className="text-sm text-primary"
+              >
                 New
               </button>
             )}
           </div>
 
-          <label className="mt-5 block text-sm font-medium">Location name</label>
+          <label className="mt-5 block text-sm font-medium">
+            Location name
+          </label>
           <input
             required
             value={locationForm.name}
-            onChange={(e) => setLocationForm({ ...locationForm, name: e.target.value })}
+            onChange={(e) =>
+              setLocationForm({ ...locationForm, name: e.target.value })
+            }
             placeholder="Dubai"
             className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
           />
@@ -1378,7 +2396,9 @@ export default function App() {
             step="0.01"
             type="number"
             value={locationForm.charge}
-            onChange={(e) => setLocationForm({ ...locationForm, charge: e.target.value })}
+            onChange={(e) =>
+              setLocationForm({ ...locationForm, charge: e.target.value })
+            }
             placeholder="25.00"
             className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
           />
@@ -1387,15 +2407,28 @@ export default function App() {
             <input
               type="checkbox"
               checked={locationForm.isActive}
-              onChange={(e) => setLocationForm({ ...locationForm, isActive: e.target.checked })}
+              onChange={(e) =>
+                setLocationForm({ ...locationForm, isActive: e.target.checked })
+              }
               className="h-4 w-4 accent-primary"
             />
             Show at checkout
           </label>
 
-          <button disabled={locationBusy} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
-            {editingLocationId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {locationBusy ? "Saving..." : editingLocationId ? "Save location" : "Add location"}
+          <button
+            disabled={locationBusy}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"
+          >
+            {editingLocationId ? (
+              <Save className="h-4 w-4" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            {locationBusy
+              ? "Saving..."
+              : editingLocationId
+                ? "Save location"
+                : "Add location"}
           </button>
         </form>
 
@@ -1407,7 +2440,9 @@ export default function App() {
               </span>
               <div>
                 <h2 className="font-display text-2xl">Locations</h2>
-                <p className="text-sm text-muted-foreground">{deliveryLocations.length} configured</p>
+                <p className="text-sm text-muted-foreground">
+                  {deliveryLocations.length} configured
+                </p>
               </div>
             </div>
             <button
@@ -1416,7 +2451,11 @@ export default function App() {
               disabled={locationsLoading}
               className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
             >
-              {locationsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {locationsLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
               Refresh
             </button>
           </div>
@@ -1436,16 +2475,29 @@ export default function App() {
                 const rowBusy = locationBusyId === location.id;
 
                 return (
-                  <article key={location.id} className="grid gap-3 bg-background/60 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <article
+                    key={location.id}
+                    className="grid gap-3 bg-background/60 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-display text-xl leading-tight">{location.name}</h3>
-                        <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-widest ${active ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}>
-                          {active ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                        <h3 className="font-display text-xl leading-tight">
+                          {location.name}
+                        </h3>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-widest ${active ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}
+                        >
+                          {active ? (
+                            <Eye className="h-3.5 w-3.5" />
+                          ) : (
+                            <EyeOff className="h-3.5 w-3.5" />
+                          )}
                           {active ? "Live" : "Hidden"}
                         </span>
                       </div>
-                      <p className="mt-1 text-sm text-muted-foreground">AED {Number(location.charge).toFixed(2)}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        AED {Number(location.charge).toFixed(2)}
+                      </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -1454,13 +2506,26 @@ export default function App() {
                         disabled={rowBusy}
                         className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"
                       >
-                        {rowBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {rowBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : active ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                         {active ? "Hide" : "Show"}
                       </button>
-                      <button onClick={() => startEditLocation(location)} className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
+                      <button
+                        onClick={() => startEditLocation(location)}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary"
+                      >
                         <Edit3 className="h-4 w-4" /> Edit
                       </button>
-                      <button onClick={() => deleteDeliveryLocation(location.id)} disabled={rowBusy} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60">
+                      <button
+                        onClick={() => deleteDeliveryLocation(location.id)}
+                        disabled={rowBusy}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                      >
                         <Trash2 className="h-4 w-4" /> Delete
                       </button>
                     </div>
@@ -1475,48 +2540,632 @@ export default function App() {
   }
 
   function renderCouponsTab() {
-    return <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
-      <form onSubmit={saveCoupon} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
-        <h2 className="font-display text-2xl">{editingCouponId ? "Edit coupon" : "New coupon"}</h2><p className="mt-1 text-sm text-muted-foreground">Create a code and choose its checkout discount.</p>
-        <label className="mt-5 block text-sm font-medium">Coupon code</label><input required maxLength={100} value={couponForm.code} onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value })} placeholder="Team discount 20!" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-        <label className="mt-4 block text-sm font-medium">Percentage off</label><input required type="number" min="1" max="99" step="0.01" value={couponForm.percentageOff} onChange={(e) => setCouponForm({ ...couponForm, percentageOff: e.target.value })} placeholder="20" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-        <label className="mt-4 flex items-center gap-3 text-sm font-medium"><input type="checkbox" checked={couponForm.isActive} onChange={(e) => setCouponForm({ ...couponForm, isActive: e.target.checked })} className="h-4 w-4 accent-primary" />Active at checkout</label>
-        <button disabled={couponBusy} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"><Save className="h-4 w-4" />{couponBusy ? "Saving..." : "Save coupon"}</button>
-        {editingCouponId && <button type="button" onClick={() => { setEditingCouponId(null); setCouponForm(emptyCouponForm); }} className="mt-3 w-full text-sm text-primary">Cancel editing</button>}
-      </form>
-      <div className="rounded-3xl border border-border bg-card p-5 shadow-glass"><div className="flex items-center justify-between gap-3"><div><h2 className="font-display text-2xl">Coupons</h2><p className="text-sm text-muted-foreground">{coupons.length} configured</p></div><button onClick={() => loadCoupons()} className={actionButtonClass()}><RefreshCw className="h-4 w-4" />Refresh</button></div>
-        <div className="mt-5 divide-y divide-border overflow-hidden rounded-2xl border border-border">{coupons.length === 0 ? <div className="p-8 text-center text-sm text-muted-foreground">No coupons yet.</div> : coupons.map((coupon) => <article key={coupon.id} className="flex flex-wrap items-center justify-between gap-3 bg-background/60 p-4"><div><div className="flex items-center gap-2"><h3 className="font-mono text-lg font-bold">{coupon.code}</h3><span className={`rounded-full px-3 py-1 text-xs font-semibold ${coupon.isActive !== false ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}>{coupon.isActive !== false ? "Active" : "Inactive"}</span></div><p className="mt-1 text-sm text-muted-foreground">{coupon.percentageOff}% off</p></div><div className="flex gap-2"><button onClick={() => editCoupon(coupon)} className={actionButtonClass()}><Edit3 className="h-4 w-4" />Edit</button><button onClick={() => deleteCoupon(coupon.id)} className={actionButtonClass("danger")}><Trash2 className="h-4 w-4" />Delete</button></div></article>)}</div>
-      </div>
-    </section>;
+    return (
+      <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
+        <form
+          onSubmit={saveCoupon}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
+          <h2 className="font-display text-2xl">
+            {editingCouponId ? "Edit coupon" : "New coupon"}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create a code and choose its checkout discount.
+          </p>
+          <label className="mt-5 block text-sm font-medium">Coupon code</label>
+          <input
+            required
+            maxLength={100}
+            value={couponForm.code}
+            onChange={(e) =>
+              setCouponForm({ ...couponForm, code: e.target.value })
+            }
+            placeholder="Team discount 20!"
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
+          <label className="mt-4 block text-sm font-medium">
+            Percentage off
+          </label>
+          <input
+            required
+            type="number"
+            min="1"
+            max="99"
+            step="0.01"
+            value={couponForm.percentageOff}
+            onChange={(e) =>
+              setCouponForm({ ...couponForm, percentageOff: e.target.value })
+            }
+            placeholder="20"
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
+          <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={couponForm.isActive}
+              onChange={(e) =>
+                setCouponForm({ ...couponForm, isActive: e.target.checked })
+              }
+              className="h-4 w-4 accent-primary"
+            />
+            Active at checkout
+          </label>
+          <button
+            disabled={couponBusy}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"
+          >
+            <Save className="h-4 w-4" />
+            {couponBusy ? "Saving..." : "Save coupon"}
+          </button>
+          {editingCouponId && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingCouponId(null);
+                setCouponForm(emptyCouponForm);
+              }}
+              className="mt-3 w-full text-sm text-primary"
+            >
+              Cancel editing
+            </button>
+          )}
+        </form>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-2xl">Coupons</h2>
+              <p className="text-sm text-muted-foreground">
+                {coupons.length} configured
+              </p>
+            </div>
+            <button
+              onClick={() => loadCoupons()}
+              className={actionButtonClass()}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
+          <div className="mt-5 divide-y divide-border overflow-hidden rounded-2xl border border-border">
+            {coupons.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No coupons yet.
+              </div>
+            ) : (
+              coupons.map((coupon) => (
+                <article
+                  key={coupon.id}
+                  className="flex flex-wrap items-center justify-between gap-3 bg-background/60 p-4"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-mono text-lg font-bold">
+                        {coupon.code}
+                      </h3>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${coupon.isActive !== false ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}
+                      >
+                        {coupon.isActive !== false ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {coupon.percentageOff}% off
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => editCoupon(coupon)}
+                      className={actionButtonClass()}
+                    >
+                      <Edit3 className="h-4 w-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteCoupon(coupon.id)}
+                      className={actionButtonClass("danger")}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+    );
   }
 
   function renderDriversTab() {
-    return <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]"><form onSubmit={saveDriver} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"><h2 className="font-display text-2xl">{editingDriverId ? "Edit driver" : "Add driver"}</h2><p className="mt-1 text-sm text-muted-foreground">Create the driver login and contact shown to customers.</p>{(["name", "username", "contact", "password"] as const).map((field) => <label key={field} className="mt-4 block text-sm font-medium">{field === "username" ? "Login username" : field.replace(/^./, (letter) => letter.toUpperCase())}<input required={field !== "password" || !editingDriverId} type={field === "password" ? "password" : "text"} value={driverForm[field]} onChange={(event) => setDriverForm({ ...driverForm, [field]: event.target.value })} placeholder={field === "password" && editingDriverId ? "Leave blank to keep password" : undefined} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3" /></label>)}<label className="mt-4 flex gap-2 text-sm"><input type="checkbox" checked={driverForm.isActive} onChange={(event) => setDriverForm({ ...driverForm, isActive: event.target.checked })} />Active</label><button disabled={busy} className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground">Save driver</button></form><div className="rounded-3xl border border-border bg-card p-5 shadow-glass"><h2 className="font-display text-2xl">Drivers</h2><div className="mt-4 space-y-3">{drivers.length === 0 ? <p className="text-sm text-muted-foreground">No drivers yet.</p> : drivers.map((driver) => <article key={driver.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border p-4"><div><h3 className="font-semibold">{driver.name}</h3><p className="text-sm text-muted-foreground">{driver.contact} - Login: {driver.username}</p></div><div className="flex gap-2"><button onClick={() => { setEditingDriverId(driver.id); setDriverForm({ name: driver.name, username: driver.username, contact: driver.contact, password: "", isActive: driver.isActive !== false }); }} className={actionButtonClass()}><Edit3 className="h-4 w-4" />Edit</button><button onClick={() => deleteDriver(driver.id)} className={actionButtonClass("danger")}><Trash2 className="h-4 w-4" />Delete</button></div></article>)}</div></div></section>;
+    return (
+      <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
+        <form
+          onSubmit={saveDriver}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
+          <h2 className="font-display text-2xl">
+            {editingDriverId ? "Edit driver" : "Add driver"}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create the driver login and contact shown to customers.
+          </p>
+          {(["name", "username", "contact", "password"] as const).map(
+            (field) => (
+              <label key={field} className="mt-4 block text-sm font-medium">
+                {field === "username"
+                  ? "Login username"
+                  : field.replace(/^./, (letter) => letter.toUpperCase())}
+                <input
+                  required={field !== "password" || !editingDriverId}
+                  type={field === "password" ? "password" : "text"}
+                  value={driverForm[field]}
+                  onChange={(event) =>
+                    setDriverForm({
+                      ...driverForm,
+                      [field]: event.target.value,
+                    })
+                  }
+                  placeholder={
+                    field === "password" && editingDriverId
+                      ? "Leave blank to keep password"
+                      : undefined
+                  }
+                  className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3"
+                />
+              </label>
+            ),
+          )}
+          <label className="mt-4 flex gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={driverForm.isActive}
+              onChange={(event) =>
+                setDriverForm({ ...driverForm, isActive: event.target.checked })
+              }
+            />
+            Active
+          </label>
+          <button
+            disabled={busy}
+            className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground"
+          >
+            Save driver
+          </button>
+        </form>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <h2 className="font-display text-2xl">Drivers</h2>
+          <div className="mt-4 space-y-3">
+            {drivers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No drivers yet.</p>
+            ) : (
+              drivers.map((driver) => (
+                <article
+                  key={driver.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border p-4"
+                >
+                  <div>
+                    <h3 className="font-semibold">{driver.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {driver.contact} - Login: {driver.username}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingDriverId(driver.id);
+                        setDriverForm({
+                          name: driver.name,
+                          username: driver.username,
+                          contact: driver.contact,
+                          password: "",
+                          isActive: driver.isActive !== false,
+                        });
+                      }}
+                      className={actionButtonClass()}
+                    >
+                      <Edit3 className="h-4 w-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteDriver(driver.id)}
+                      className={actionButtonClass("danger")}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderPickupLocationsTab() {
+    return (
+      <section className="mt-8 grid gap-4 lg:grid-cols-[380px_1fr]">
+        <form
+          onSubmit={savePickupLocation}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
+          <h2 className="font-display text-2xl">
+            {editingPickupId ? "Edit pickup location" : "Add pickup location"}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Public collection details and private staff login.
+          </p>
+          {(
+            ["name", "address", "contact", "username", "password"] as const
+          ).map((field) => (
+            <label key={field} className="mt-4 block text-sm font-medium">
+              {field === "address"
+                ? "Full address"
+                : field === "username"
+                  ? "Login username"
+                  : field.replace(/^./, (letter) => letter.toUpperCase())}
+              <input
+                required={field !== "password" || !editingPickupId}
+                type={field === "password" ? "password" : "text"}
+                value={pickupForm[field]}
+                onChange={(event) =>
+                  setPickupForm({ ...pickupForm, [field]: event.target.value })
+                }
+                placeholder={
+                  field === "password" && editingPickupId
+                    ? "Leave blank to keep password"
+                    : undefined
+                }
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3"
+              />
+            </label>
+          ))}
+          <label className="mt-4 flex gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={pickupForm.isActive}
+              onChange={(event) =>
+                setPickupForm({ ...pickupForm, isActive: event.target.checked })
+              }
+            />
+            Active
+          </label>
+          <button
+            disabled={busy}
+            className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground"
+          >
+            Save pickup location
+          </button>
+        </form>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <h2 className="font-display text-2xl">Pickup locations</h2>
+          <div className="mt-4 space-y-3">
+            {pickupLocations.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No pickup locations yet.
+              </p>
+            ) : (
+              pickupLocations.map((location) => (
+                <article
+                  key={location.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border p-4"
+                >
+                  <div>
+                    <h3 className="font-semibold">{location.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {location.address}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {location.contact} · Login: {location.username}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingPickupId(location.id);
+                        setPickupForm({
+                          name: location.name,
+                          address: location.address,
+                          contact: location.contact,
+                          username: location.username,
+                          password: "",
+                          isActive: location.isActive !== false,
+                        });
+                      }}
+                      className={actionButtonClass()}
+                    >
+                      <Edit3 className="h-4 w-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deletePickupLocation(location.id)}
+                      className={actionButtonClass("danger")}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+    );
   }
 
   async function driverDelivered(order: AdminOrder) {
     setOrderBusyId(order.id);
-    try { const updated = await markDriverOrderDelivered(token, order.id); setOrders((current) => current.map((item) => item.id === updated.id ? updated : item)); setMessage("Order marked delivered and customer email sent."); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Could not mark delivered"); }
-    finally { setOrderBusyId(null); }
+    try {
+      const updated = await markDriverOrderDelivered(token, order.id);
+      setOrders((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setMessage("Order marked delivered and customer email sent.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not mark delivered",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
+  }
+
+  async function pickupCollected(order: AdminOrder) {
+    setOrderBusyId(order.id);
+    try {
+      const updated = await markPickupOrderCollected(token, order.id);
+      setOrders((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setMessage("Order marked collected and customer email sent.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not mark collected",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
+  }
+
+  function renderPickupPanel() {
+    return (
+      <main className="min-h-screen bg-background px-4 py-8">
+        <div className="mx-auto max-w-5xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs uppercase tracking-[0.3em] text-caramel">
+                Zekra Sweets
+              </span>
+              <h1 className="mt-2 font-display text-4xl">
+                Pickup location panel
+              </h1>
+            </div>
+            <button onClick={logout} className={actionButtonClass()}>
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
+          {message && (
+            <div className="mt-5 rounded-2xl border border-border bg-card p-4 text-sm">
+              {message}
+            </div>
+          )}
+          <div className="mt-6 space-y-4">
+            {ordersLoading ? (
+              <p>Loading assigned pickup orders...</p>
+            ) : orders.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-border p-10 text-center text-muted-foreground">
+                No pickup orders assigned.
+              </div>
+            ) : (
+              orders.map((order) => (
+                <article
+                  key={order.id}
+                  className="rounded-3xl border border-border bg-card p-5 shadow-glass"
+                >
+                  <div className="flex flex-wrap justify-between gap-3">
+                    <div>
+                      <h2 className="font-display text-2xl">{order.id}</h2>
+                      <p className="mt-1 text-sm">
+                        {order.customer.name} ·{" "}
+                        <a
+                          href={`tel:${order.customer.phone}`}
+                          className="text-primary"
+                        >
+                          {order.customer.phone}
+                        </a>
+                      </p>
+                    </div>
+                    <span
+                      className={`h-fit rounded-xl border px-3 py-2 text-xs font-semibold ${statusTone(order.status)}`}
+                    >
+                      {orderStatusLabels[order.status]}
+                    </span>
+                  </div>
+                  {(() => {
+                    const entry = [...(order.statusHistory || [])]
+                      .reverse()
+                      .find(
+                        (item) =>
+                          item.status ===
+                          (order.status === "collected"
+                            ? "collected"
+                            : "ready"),
+                      );
+                    return entry ? (
+                      <p className="mt-3 text-xs font-semibold text-muted-foreground">
+                        {order.status === "collected"
+                          ? "Collected"
+                          : "Ready since"}{" "}
+                        {formatDateTime(entry.at)} · Dubai time
+                      </p>
+                    ) : null;
+                  })()}
+                  <div className="mt-4 space-y-2 text-sm">
+                    {order.items.map((item, index) => (
+                      <div
+                        key={`${item.productId}-${index}`}
+                        className="flex justify-between gap-3"
+                      >
+                        <span>
+                          {item.name}
+                          {item.sizeLabel ? ` (${item.sizeLabel})` : ""}
+                        </span>
+                        <strong>x{item.quantity}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  {order.status !== "collected" && (
+                    <button
+                      onClick={() => pickupCollected(order)}
+                      disabled={
+                        orderBusyId === order.id || order.status !== "ready"
+                      }
+                      className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="mr-2 inline h-4 w-4" />
+                      Mark as collected
+                    </button>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </main>
+    );
   }
 
   function renderDriverPanel() {
-    return <main className="min-h-screen bg-background px-4 py-8"><div className="mx-auto max-w-5xl"><div className="flex items-center justify-between"><div><span className="text-xs uppercase tracking-[0.3em] text-caramel">Zekra Sweets</span><h1 className="mt-2 font-display text-4xl">Driver panel</h1></div><button onClick={logout} className={actionButtonClass()}><LogOut className="h-4 w-4" />Logout</button></div>{message && <div className="mt-5 rounded-2xl border border-border bg-card p-4 text-sm">{message}</div>}<div className="mt-6 space-y-4">{ordersLoading ? <p>Loading assigned orders...</p> : orders.length === 0 ? <div className="rounded-3xl border border-dashed border-border p-10 text-center text-muted-foreground">No orders assigned.</div> : orders.map((order) => <article key={order.id} className="rounded-3xl border border-border bg-card p-5 shadow-glass"><div className="flex flex-wrap justify-between gap-3"><div><h2 className="font-display text-2xl">{order.id}</h2><p className="mt-1 text-sm">{order.customer.name} - <a href={`tel:${order.customer.phone}`} className="text-primary">{order.customer.phone}</a></p></div><span className={`h-fit rounded-xl border px-3 py-2 text-xs font-semibold ${statusTone(order.status)}`}>{orderStatusLabels[order.status]}</span></div><div className="mt-4 rounded-2xl bg-muted/50 p-4"><div className="text-xs uppercase tracking-wider text-muted-foreground">Delivery address</div><p className="mt-1 font-semibold">{order.fulfillment.address || "No address"}</p></div><div className="mt-4 space-y-2 text-sm">{order.items.map((item, index) => <div key={`${item.productId}-${index}`} className="flex justify-between gap-3"><span>{item.name}{item.sizeLabel ? ` (${item.sizeLabel})` : ""}</span><strong>x{item.quantity}</strong></div>)}</div>{order.status !== "completed" && <button onClick={() => driverDelivered(order)} disabled={orderBusyId === order.id} className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60"><CheckCircle2 className="mr-2 inline h-4 w-4" />Mark delivered</button>}</article>)}</div></div></main>;
+    return (
+      <main className="min-h-screen bg-background px-4 py-8">
+        <div className="mx-auto max-w-5xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs uppercase tracking-[0.3em] text-caramel">
+                Zekra Sweets
+              </span>
+              <h1 className="mt-2 font-display text-4xl">Driver panel</h1>
+            </div>
+            <button onClick={logout} className={actionButtonClass()}>
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
+          {message && (
+            <div className="mt-5 rounded-2xl border border-border bg-card p-4 text-sm">
+              {message}
+            </div>
+          )}
+          <div className="mt-6 space-y-4">
+            {ordersLoading ? (
+              <p>Loading assigned orders...</p>
+            ) : orders.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-border p-10 text-center text-muted-foreground">
+                No orders assigned.
+              </div>
+            ) : (
+              orders.map((order) => (
+                <article
+                  key={order.id}
+                  className="rounded-3xl border border-border bg-card p-5 shadow-glass"
+                >
+                  <div className="flex flex-wrap justify-between gap-3">
+                    <div>
+                      <h2 className="font-display text-2xl">{order.id}</h2>
+                      <p className="mt-1 text-sm">
+                        {order.customer.name} -{" "}
+                        <a
+                          href={`tel:${order.customer.phone}`}
+                          className="text-primary"
+                        >
+                          {order.customer.phone}
+                        </a>
+                      </p>
+                    </div>
+                    <span
+                      className={`h-fit rounded-xl border px-3 py-2 text-xs font-semibold ${statusTone(order.status)}`}
+                    >
+                      {orderStatusLabels[order.status]}
+                    </span>
+                  </div>
+                  <div className="mt-4 rounded-2xl bg-muted/50 p-4">
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Delivery address
+                    </div>
+                    <p className="mt-1 font-semibold">
+                      {order.fulfillment.address || "No address"}
+                    </p>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm">
+                    {order.items.map((item, index) => (
+                      <div
+                        key={`${item.productId}-${index}`}
+                        className="flex justify-between gap-3"
+                      >
+                        <span>
+                          {item.name}
+                          {item.sizeLabel ? ` (${item.sizeLabel})` : ""}
+                        </span>
+                        <strong>x{item.quantity}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  {order.status !== "completed" && (
+                    <button
+                      onClick={() => driverDelivered(order)}
+                      disabled={orderBusyId === order.id}
+                      className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60"
+                    >
+                      <CheckCircle2 className="mr-2 inline h-4 w-4" />
+                      Mark delivered
+                    </button>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </main>
+    );
   }
 
   if (!token) {
     return (
       <main className="grid min-h-screen place-items-center bg-background px-4">
-        <form onSubmit={login} className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-elegant">
+        <form
+          onSubmit={login}
+          className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-elegant"
+        >
           <h1 className="font-display text-3xl">Admin login</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Manage Zekra Sweets products, orders, and delivery locations.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Manage Zekra Sweets products, orders, and delivery locations.
+          </p>
           <label className="mt-6 block text-sm font-medium">Username</label>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
           <label className="mt-4 block text-sm font-medium">Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-          {message && <div className="mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{message}</div>}
-          <button disabled={busy} className="mt-6 w-full rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60">
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
+          {message && (
+            <div className="mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {message}
+            </div>
+          )}
+          <button
+            disabled={busy}
+            className="mt-6 w-full rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"
+          >
             {busy ? "Signing in..." : "Sign in"}
           </button>
         </form>
@@ -1525,13 +3174,45 @@ export default function App() {
   }
 
   if (role === "driver") return renderDriverPanel();
+  if (role === "pickup_location") return renderPickupPanel();
 
   const tabs = [
-    { id: "orders" as const, label: "Orders", count: orders.length, icon: ClipboardList },
-    { id: "products" as const, label: "Products", count: products.length, icon: ShoppingBag },
-    { id: "locations" as const, label: "Delivery", count: deliveryLocations.length, icon: MapPin },
-    { id: "coupons" as const, label: "Coupons", count: coupons.length, icon: BadgePercent },
-    { id: "drivers" as const, label: "Drivers", count: drivers.length, icon: UserRound },
+    {
+      id: "orders" as const,
+      label: "Orders",
+      count: orders.length,
+      icon: ClipboardList,
+    },
+    {
+      id: "products" as const,
+      label: "Products",
+      count: products.length,
+      icon: ShoppingBag,
+    },
+    {
+      id: "locations" as const,
+      label: "Delivery",
+      count: deliveryLocations.length,
+      icon: MapPin,
+    },
+    {
+      id: "coupons" as const,
+      label: "Coupons",
+      count: coupons.length,
+      icon: BadgePercent,
+    },
+    {
+      id: "drivers" as const,
+      label: "Drivers",
+      count: drivers.length,
+      icon: UserRound,
+    },
+    {
+      id: "pickup_locations" as const,
+      label: "Pickup locations",
+      count: pickupLocations.length,
+      icon: Store,
+    },
   ];
 
   return (
@@ -1539,15 +3220,23 @@ export default function App() {
       <div className="mx-auto max-w-7xl">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <span className="text-xs uppercase tracking-[0.3em] text-caramel">Zekra Sweets</span>
+            <span className="text-xs uppercase tracking-[0.3em] text-caramel">
+              Zekra Sweets
+            </span>
             <h1 className="mt-2 font-display text-4xl">Store admin</h1>
           </div>
-          <button onClick={logout} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary">
+          <button
+            onClick={logout}
+            className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary"
+          >
             <LogOut className="h-4 w-4" /> Logout
           </button>
         </div>
 
-        <nav className="mt-6 flex flex-wrap gap-2 rounded-3xl border border-border bg-card p-2 shadow-glass" aria-label="Admin sections">
+        <nav
+          className="mt-6 flex flex-wrap gap-2 rounded-3xl border border-border bg-card p-2 shadow-glass"
+          aria-label="Admin sections"
+        >
           {tabs.map((tab) => {
             const Icon = tab.icon;
 
@@ -1560,19 +3249,26 @@ export default function App() {
               >
                 <Icon className="h-4 w-4" />
                 <span>{tab.label}</span>
-                <span className="rounded-lg bg-card/70 px-2 py-0.5 text-xs text-cocoa">{tab.count}</span>
+                <span className="rounded-lg bg-card/70 px-2 py-0.5 text-xs text-cocoa">
+                  {tab.count}
+                </span>
               </button>
             );
           })}
         </nav>
 
-        {message && <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-3 text-sm">{message}</div>}
+        {message && (
+          <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-3 text-sm">
+            {message}
+          </div>
+        )}
 
         {activeTab === "orders" && renderOrdersTab()}
         {activeTab === "products" && renderProductsTab()}
         {activeTab === "locations" && renderLocationsTab()}
         {activeTab === "coupons" && renderCouponsTab()}
         {activeTab === "drivers" && renderDriversTab()}
+        {activeTab === "pickup_locations" && renderPickupLocationsTab()}
 
         {detailOrder && (
           <div
@@ -1587,11 +3283,18 @@ export default function App() {
             <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-border bg-background p-5 shadow-2xl">
               <div className="flex items-start justify-between gap-4 border-b border-border pb-4">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-caramel">Order details</p>
-                  <h2 id="order-details-title" className="mt-2 font-display text-2xl">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-caramel">
+                    Order details
+                  </p>
+                  <h2
+                    id="order-details-title"
+                    className="mt-2 font-display text-2xl"
+                  >
                     {detailOrder.customer.name || detailOrder.id}
                   </h2>
-                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{detailOrder.id}</p>
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                    {detailOrder.id}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -1615,16 +3318,30 @@ export default function App() {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-1 rounded-xl bg-card/70 px-3 py-2 sm:grid-cols-[96px_1fr]">
-      <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+      <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </dt>
       <dd className="min-w-0 break-words font-semibold">{value}</dd>
     </div>
   );
 }
 
-function TotalRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+function TotalRow({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
   return (
-    <div className={`flex items-center justify-between gap-3 ${strong ? "font-display text-xl" : "text-sm"}`}>
-      <span className={strong ? "font-bold" : "text-muted-foreground"}>{label}</span>
+    <div
+      className={`flex items-center justify-between gap-3 ${strong ? "font-display text-xl" : "text-sm"}`}
+    >
+      <span className={strong ? "font-bold" : "text-muted-foreground"}>
+        {label}
+      </span>
       <span className="font-semibold">{value}</span>
     </div>
   );
