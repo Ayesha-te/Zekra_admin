@@ -2384,7 +2384,7 @@ export default function App() {
     return (
       <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
         <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
-          <h2 className="font-display text-2xl">Add combo pack</h2>
+          <div className="flex items-center justify-between gap-3"><h2 className="font-display text-2xl">{editingId ? "Edit combo pack" : "Add combo pack"}</h2>{editingId && <button type="button" onClick={resetProductForm} className="text-sm text-primary">New combo</button>}</div>
           <p className="mt-1 text-sm text-muted-foreground">Create a pack without adding a regular product.</p>
           <label className="mt-5 block text-sm font-medium">Combo name</label>
           <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, isComboPack: true })} placeholder="Combo of 3 assorted sweets" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
@@ -2401,9 +2401,24 @@ export default function App() {
             </div>
             <p className="mt-3 text-xs text-muted-foreground">{form.comboProductIds.length} / {form.comboSize} selected</p>
           </div>
-          <button disabled={busy} className="mt-6 w-full rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy ? "Saving..." : "Add combo pack"}</button>
+          <button disabled={busy} className="mt-6 w-full rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy ? "Saving..." : editingId ? "Save combo changes" : "Add combo pack"}</button>
         </form>
-        <div><h2 className="font-display text-2xl">Combo packs</h2><p className="mt-1 text-sm text-muted-foreground">{products.filter((product) => product.isComboPack).length} configured combo packs</p></div>
+        <div>
+          <h2 className="font-display text-2xl">Combo packs</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{products.filter((product) => product.isComboPack).length} configured combo packs</p>
+          <div className="mt-4 grid gap-3">
+            {products.filter((product) => product.isComboPack).map((combo) => (
+              <div key={combo.id} className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card p-4 shadow-glass">
+                <div>
+                  <h3 className="font-display text-xl">{combo.name}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">Combo of {combo.comboSize || combo.comboProductIds?.length || 1} · AED {Number(combo.price).toFixed(2)}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{(combo.comboProductIds || []).map((id) => products.find((product) => product.id === id)?.name || "Product").join(", ")}</p>
+                </div>
+                <button type="button" onClick={() => startEdit(combo)} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"><Edit3 className="h-4 w-4" /> Edit</button>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
     );
   }
