@@ -2425,7 +2425,10 @@ export default function App() {
                   <p className="mt-1 text-sm text-muted-foreground">Combo of {combo.comboSize || combo.comboProductIds?.length || 1} · AED {Number(combo.price).toFixed(2)}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{(combo.comboProductIds || []).map((id) => products.find((product) => product.id === id)?.name || "Product").join(", ")}</p>
                 </div>
-                <button type="button" onClick={() => startEdit(combo)} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"><Edit3 className="h-4 w-4" /> Edit</button>
+                <div className="flex shrink-0 gap-2">
+                  <button type="button" onClick={() => startEdit(combo)} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary"><Edit3 className="h-4 w-4" /> Edit</button>
+                  <button type="button" onClick={() => deleteProduct(combo.id)} className="inline-flex items-center gap-2 rounded-full border border-destructive/30 px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10"><Trash2 className="h-4 w-4" /> Delete</button>
+                </div>
               </div>
             ))}
           </div>
