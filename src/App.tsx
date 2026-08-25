@@ -2379,6 +2379,35 @@ export default function App() {
     );
   }
 
+  function renderComboTab() {
+    const comboProducts = products.filter((product) => !product.isComboPack);
+    return (
+      <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
+        <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <h2 className="font-display text-2xl">Add combo pack</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Create a pack without adding a regular product.</p>
+          <label className="mt-5 block text-sm font-medium">Combo name</label>
+          <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, isComboPack: true })} placeholder="Combo of 3 assorted sweets" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
+          <label className="mt-4 block text-sm font-medium">Pack size</label>
+          <select value={form.comboSize} onChange={(e) => setForm({ ...form, comboSize: e.target.value, isComboPack: true })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3">
+            {[2, 3, 4, 5, 6, 8, 10].map((size) => <option key={size} value={size}>Combo of {size}</option>)}
+          </select>
+          <label className="mt-4 block text-sm font-medium">Discounted price AED</label>
+          <input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value, isComboPack: true })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3" />
+          <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
+            <h3 className="font-display text-xl">Select products</h3>
+            <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto">
+              {comboProducts.map((product) => <label key={product.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.comboProductIds.includes(product.id)} onChange={(e) => setForm({ ...form, isComboPack: true, comboProductIds: e.target.checked ? [...form.comboProductIds, product.id] : form.comboProductIds.filter((id) => id !== product.id) })} className="h-4 w-4 accent-primary" />{product.name}</label>)}
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">{form.comboProductIds.length} / {form.comboSize} selected</p>
+          </div>
+          <button disabled={busy} className="mt-6 w-full rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy ? "Saving..." : "Add combo pack"}</button>
+        </form>
+        <div><h2 className="font-display text-2xl">Combo packs</h2><p className="mt-1 text-sm text-muted-foreground">{products.filter((product) => product.isComboPack).length} configured combo packs</p></div>
+      </section>
+    );
+  }
+
   function renderLocationsTab() {
     return (
       <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
@@ -3299,7 +3328,7 @@ export default function App() {
 
         {activeTab === "orders" && renderOrdersTab()}
         {activeTab === "products" && renderProductsTab()}
-        {activeTab === "combos" && renderProductsTab()}
+        {activeTab === "combos" && renderComboTab()}
         {activeTab === "locations" && renderLocationsTab()}
         {activeTab === "coupons" && renderCouponsTab()}
         {activeTab === "drivers" && renderDriversTab()}
