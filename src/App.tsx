@@ -852,7 +852,7 @@ export default function App() {
     );
     payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
     payload.append("comboProductIds", JSON.stringify(form.comboProductIds));
-    payload.append("comboSize", form.comboSize);
+    payload.append("comboSize", activeTab === "combos" ? String(form.comboProductIds.length) : form.comboSize);
     payload.append("isComboPack", String(activeTab === "combos"));
     payload.append("comboSize", form.comboSize);
     payload.append("imageUrls", JSON.stringify(existingImageUrls));
@@ -2388,10 +2388,6 @@ export default function App() {
           <p className="mt-1 text-sm text-muted-foreground">Create a pack without adding a regular product.</p>
           <label className="mt-5 block text-sm font-medium">Combo name</label>
           <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, isComboPack: true })} placeholder="Combo of 3 assorted sweets" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
-          <label className="mt-4 block text-sm font-medium">Pack size</label>
-          <select value={form.comboSize} onChange={(e) => setForm({ ...form, comboSize: e.target.value, isComboPack: true })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3">
-            {[1, 2, 3, 4, 5, 6, 8, 10].map((size) => <option key={size} value={size}>Combo of {size}</option>)}
-          </select>
           <label className="mt-4 block text-sm font-medium">Discounted price AED</label>
           <input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value, isComboPack: true })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3" />
           <label className="mt-4 block text-sm font-medium">Combo description</label>
@@ -2401,7 +2397,7 @@ export default function App() {
             <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto">
               {comboProducts.map((product) => <label key={product.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.comboProductIds.includes(product.id)} onChange={(e) => setForm({ ...form, isComboPack: true, comboProductIds: e.target.checked ? [...form.comboProductIds, product.id] : form.comboProductIds.filter((id) => id !== product.id) })} className="h-4 w-4 accent-primary" />{product.name}</label>)}
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">{form.comboProductIds.length} / {form.comboSize} selected</p>
+            <p className="mt-3 text-xs text-muted-foreground">{form.comboProductIds.length} product(s) selected</p>
           </div>
           <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
             <ImagePlus className="h-5 w-5" />
