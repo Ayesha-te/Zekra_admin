@@ -2394,6 +2394,8 @@ export default function App() {
           </select>
           <label className="mt-4 block text-sm font-medium">Discounted price AED</label>
           <input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value, isComboPack: true })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3" />
+          <label className="mt-4 block text-sm font-medium">Combo description</label>
+          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value, isComboPack: true })} placeholder="Describe what customers receive in this combo" rows={4} className="mt-2 w-full resize-none rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
           <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
             <h3 className="font-display text-xl">Select products</h3>
             <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto">
