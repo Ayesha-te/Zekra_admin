@@ -74,6 +74,7 @@ const emptyForm = {
   isActive: true,
   isComboPack: false,
   comboProductIds: [] as string[],
+  comboSize: "3",
 };
 
 type ProductForm = typeof emptyForm;
@@ -86,6 +87,7 @@ type ProductSizeForm = {
 type AdminTab =
   | "orders"
   | "products"
+  | "combos"
   | "locations"
   | "pickup_locations"
   | "coupons"
@@ -850,6 +852,9 @@ export default function App() {
     );
     payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
     payload.append("comboProductIds", JSON.stringify(form.comboProductIds));
+    payload.append("comboSize", form.comboSize);
+    payload.append("isComboPack", String(activeTab === "combos"));
+    payload.append("comboSize", form.comboSize);
     payload.append("imageUrls", JSON.stringify(existingImageUrls));
     if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
     images.forEach((file) => payload.append("images", file));
@@ -915,6 +920,7 @@ export default function App() {
       isActive: product.isActive !== false,
       isComboPack: product.isComboPack === true,
       comboProductIds: product.comboProductIds || [],
+      comboSize: String(product.comboSize || product.comboProductIds?.length || 3),
     };
 
     setEditingId(product.id);
@@ -2046,20 +2052,22 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+          {activeTab === "combos" && <div className="mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4">
             <label className="flex items-center gap-3 text-sm font-semibold">
-              <input type="checkbox" checked={form.isComboPack} onChange={(e) => setForm({ ...form, isComboPack: e.target.checked })} className="h-4 w-4 accent-primary" />
-              Combo pack
+              <span className="font-display text-xl">Combo pack</span>
             </label>
-            <p className="mt-1 text-xs text-muted-foreground">Select the products included in this pack and enter the discounted price above.</p>
-            {form.isComboPack && <div className="mt-3 grid gap-2">
+            <p className="mt-1 text-xs text-muted-foreground">Choose the pack size and select the products included in it.</p>
+            <select value={form.comboSize} onChange={(e) => setForm({ ...form, comboSize: e.target.value, isComboPack: true })} className="mt-3 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm">
+              {[2, 3, 4, 5, 6, 8, 10].map((size) => <option key={size} value={size}>Combo of {size}</option>)}
+            </select>
+            <div className="mt-3 grid gap-2">
               {products.filter((product) => product.id !== editingId && !product.isComboPack).map((product) => <label key={product.id} className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.comboProductIds.includes(product.id)} onChange={(e) => setForm({ ...form, comboProductIds: e.target.checked ? [...form.comboProductIds, product.id] : form.comboProductIds.filter((id) => id !== product.id) })} className="h-4 w-4 accent-primary" />
                 {product.name}
               </label>)}
-              <span className="text-xs text-muted-foreground">{form.comboProductIds.length} product(s) selected</span>
-            </div>}
-          </div>
+              <span className="text-xs text-muted-foreground">{form.comboProductIds.length} / {form.comboSize} product(s) selected</span>
+            </div>
+          </div>}
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div>
@@ -3210,6 +3218,12 @@ export default function App() {
       icon: ShoppingBag,
     },
     {
+      id: "combos" as const,
+      label: "Combo packs",
+      count: products.filter((product) => product.isComboPack).length,
+      icon: PackageCheck,
+    },
+    {
       id: "locations" as const,
       label: "Delivery",
       count: deliveryLocations.length,
@@ -3285,6 +3299,7 @@ export default function App() {
 
         {activeTab === "orders" && renderOrdersTab()}
         {activeTab === "products" && renderProductsTab()}
+        {activeTab === "combos" && renderProductsTab()}
         {activeTab === "locations" && renderLocationsTab()}
         {activeTab === "coupons" && renderCouponsTab()}
         {activeTab === "drivers" && renderDriversTab()}
