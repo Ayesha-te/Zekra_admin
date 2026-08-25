@@ -2401,6 +2401,15 @@ export default function App() {
             </div>
             <p className="mt-3 text-xs text-muted-foreground">{form.comboProductIds.length} / {form.comboSize} selected</p>
           </div>
+          <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
+            <ImagePlus className="h-5 w-5" />
+            {images.length ? `${images.length} combo image${images.length === 1 ? "" : "s"} selected` : "Add combo pictures (optional)"}
+            <input type="file" accept="image/*" multiple onChange={(e) => { handleImageSelection(e.target.files); e.currentTarget.value = ""; }} className="hidden" />
+          </label>
+          {(existingImageUrls.length > 0 || imagePreviewUrls.length > 0) && <div className="mt-3 grid grid-cols-3 gap-2">
+            {existingImageUrls.map((url) => <img key={url} src={assetUrl(url)} alt="Combo" className="aspect-square rounded-xl object-cover" />)}
+            {imagePreviewUrls.map((url, index) => <img key={url} src={url} alt={`Combo preview ${index + 1}`} className="aspect-square rounded-xl object-cover" />)}
+          </div>}
           <button disabled={busy} className="mt-6 w-full rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60">{busy ? "Saving..." : editingId ? "Save combo changes" : "Add combo pack"}</button>
         </form>
         <div>
