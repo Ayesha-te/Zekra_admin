@@ -2058,7 +2058,7 @@ export default function App() {
             </label>
             <p className="mt-1 text-xs text-muted-foreground">Choose the pack size and select the products included in it.</p>
             <select value={form.comboSize} onChange={(e) => setForm({ ...form, comboSize: e.target.value, isComboPack: true })} className="mt-3 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm">
-              {[2, 3, 4, 5, 6, 8, 10].map((size) => <option key={size} value={size}>Combo of {size}</option>)}
+              {[1, 2, 3, 4, 5, 6, 8, 10].map((size) => <option key={size} value={size}>Combo of {size}</option>)}
             </select>
             <div className="mt-3 grid gap-2">
               {products.filter((product) => product.id !== editingId && !product.isComboPack).map((product) => <label key={product.id} className="flex items-center gap-2 text-sm">
@@ -2390,7 +2390,7 @@ export default function App() {
           <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, isComboPack: true })} placeholder="Combo of 3 assorted sweets" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
           <label className="mt-4 block text-sm font-medium">Pack size</label>
           <select value={form.comboSize} onChange={(e) => setForm({ ...form, comboSize: e.target.value, isComboPack: true })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3">
-            {[2, 3, 4, 5, 6, 8, 10].map((size) => <option key={size} value={size}>Combo of {size}</option>)}
+            {[1, 2, 3, 4, 5, 6, 8, 10].map((size) => <option key={size} value={size}>Combo of {size}</option>)}
           </select>
           <label className="mt-4 block text-sm font-medium">Discounted price AED</label>
           <input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value, isComboPack: true })} className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3" />
