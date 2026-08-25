@@ -72,6 +72,8 @@ const emptyForm = {
   tag: "",
   description: "",
   isActive: true,
+  isComboPack: false,
+  comboProductIds: [] as string[],
 };
 
 type ProductForm = typeof emptyForm;
@@ -847,6 +849,7 @@ export default function App() {
       payload.append(key, String(value)),
     );
     payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
+    payload.append("comboProductIds", JSON.stringify(form.comboProductIds));
     payload.append("imageUrls", JSON.stringify(existingImageUrls));
     if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
     images.forEach((file) => payload.append("images", file));
@@ -910,6 +913,8 @@ export default function App() {
       tag: product.tag || "",
       description: product.description || "",
       isActive: product.isActive !== false,
+      isComboPack: product.isComboPack === true,
+      comboProductIds: product.comboProductIds || [],
     };
 
     setEditingId(product.id);
@@ -2039,6 +2044,21 @@ export default function App() {
                 className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
               />
             </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+            <label className="flex items-center gap-3 text-sm font-semibold">
+              <input type="checkbox" checked={form.isComboPack} onChange={(e) => setForm({ ...form, isComboPack: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Combo pack
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">Select the products included in this pack and enter the discounted price above.</p>
+            {form.isComboPack && <div className="mt-3 grid gap-2">
+              {products.filter((product) => product.id !== editingId && !product.isComboPack).map((product) => <label key={product.id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.comboProductIds.includes(product.id)} onChange={(e) => setForm({ ...form, comboProductIds: e.target.checked ? [...form.comboProductIds, product.id] : form.comboProductIds.filter((id) => id !== product.id) })} className="h-4 w-4 accent-primary" />
+                {product.name}
+              </label>)}
+              <span className="text-xs text-muted-foreground">{form.comboProductIds.length} product(s) selected</span>
+            </div>}
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3">
