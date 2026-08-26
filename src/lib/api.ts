@@ -30,6 +30,8 @@ export type Product = {
   isActive?: boolean;
   updatedAt?: string;
   category: "Cookies" | "Sweets" | "Rusk" | "Puff" | string;
+  mainCategory?: string;
+  subcategory?: string;
 };
 
 export type ProductImageMetadata = {
@@ -51,6 +53,7 @@ export type ProductSizeOption = {
 export type ProductCategory = {
   id: string;
   name: string;
+  subcategories?: string[];
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;

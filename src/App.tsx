@@ -67,6 +67,8 @@ import {
 const emptyForm = {
   name: "",
   category: "Cookies",
+  mainCategory: "Cookies",
+  subcategory: "",
   price: "",
   originalPrice: "",
   preparationTime: "1",
@@ -106,6 +108,7 @@ const emptyLocationForm = {
 type LocationForm = typeof emptyLocationForm;
 const emptyCouponForm = { code: "", percentageOff: "", isActive: true };
 const emptyCategoryForm = { name: "" };
+const emptySubcategoryForms: Record<string, string> = {};
 const emptyDriverForm = {
   name: "",
   username: "",
@@ -310,6 +313,7 @@ export default function App() {
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationBusyId, setLocationBusyId] = useState<string | null>(null);
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
+  const [subcategoryForms, setSubcategoryForms] = useState(emptySubcategoryForms);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const [couponForm, setCouponForm] = useState(emptyCouponForm);
   const [editingCouponId, setEditingCouponId] = useState<string | null>(null);
@@ -369,6 +373,44 @@ export default function App() {
     ],
     [savedCategories],
   );
+  const selectedMainCategory = useMemo(
+    () =>
+      savedCategories.find(
+        (category) => category.name === form.mainCategory && category.isActive !== false,
+      ) || null,
+    [form.mainCategory, savedCategories],
+  );
+  const selectedMainSubcategories = selectedMainCategory?.subcategories || [];
+  const selectedProductCategory =
+    selectedMainSubcategories.length > 0
+      ? form.subcategory || selectedMainSubcategories[0] || ""
+      : form.mainCategory;
+
+  useEffect(() => {
+    if (productCategories.length === 0) return;
+    const mainCategory = productCategories.includes(form.mainCategory)
+      ? form.mainCategory
+      : productCategories[0];
+    const main = savedCategories.find((category) => category.name === mainCategory);
+    const subcategories = main?.subcategories || [];
+    const subcategory =
+      subcategories.length > 0 && subcategories.includes(form.subcategory)
+        ? form.subcategory
+        : subcategories[0] || "";
+    const category = subcategory || mainCategory;
+    if (
+      mainCategory !== form.mainCategory ||
+      subcategory !== form.subcategory ||
+      category !== form.category
+    ) {
+      setForm((currentForm) => ({
+        ...currentForm,
+        mainCategory,
+        subcategory,
+        category,
+      }));
+    }
+  }, [form.category, form.mainCategory, form.subcategory, productCategories, savedCategories]);
 
   useEffect(() => {
     const previewUrls = images.map((file) => URL.createObjectURL(file));
@@ -561,6 +603,80 @@ export default function App() {
     } finally {
       setCategoryBusyId(null);
     }
+  }
+
+  async function addSubcategory(category: ProductCategory) {
+    const name = (subcategoryForms[category.id] || "").trim();
+    if (!name) return;
+    const subcategories = [...new Set([...(category.subcategories || []), name])];
+    setCategoryBusyId(category.id);
+    setMessage("");
+    try {
+      const updated = await apiFetch<ProductCategory>(
+        `/api/admin/categories/${encodeURIComponent(category.id)}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ...category, subcategories }),
+        },
+      );
+      setSavedCategories((currentCategories) =>
+        currentCategories.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setSubcategoryForms((currentForms) => ({ ...currentForms, [category.id]: "" }));
+      setMessage("Subcategory saved.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not save subcategory",
+      );
+    } finally {
+      setCategoryBusyId(null);
+    }
+  }
+
+  async function removeSubcategory(category: ProductCategory, name: string) {
+    const subcategories = (category.subcategories || []).filter(
+      (subcategory) => subcategory !== name,
+    );
+    setCategoryBusyId(category.id);
+    setMessage("");
+    try {
+      const updated = await apiFetch<ProductCategory>(
+        `/api/admin/categories/${encodeURIComponent(category.id)}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ...category, subcategories }),
+        },
+      );
+      setSavedCategories((currentCategories) =>
+        currentCategories.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setMessage("Subcategory removed.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not remove subcategory",
+      );
+    } finally {
+      setCategoryBusyId(null);
+    }
+  }
+
+  function categorySelectionForProduct(productCategory: string) {
+    const directCategory = savedCategories.find((category) => category.name === productCategory);
+    if (directCategory) return { mainCategory: directCategory.name, subcategory: "" };
+    const parentCategory = savedCategories.find((category) =>
+      (category.subcategories || []).includes(productCategory),
+    );
+    return parentCategory
+      ? { mainCategory: parentCategory.name, subcategory: productCategory }
+      : { mainCategory: productCategory, subcategory: "" };
   }
 
   async function loadDeliveryLocations(authToken = token) {
@@ -939,7 +1055,7 @@ export default function App() {
 
     try {
       const payload = new FormData();
-      Object.entries(form).forEach(([key, value]) =>
+      Object.entries({ ...form, category: selectedProductCategory }).forEach(([key, value]) =>
         payload.append(key, String(value)),
       );
       payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
@@ -1000,9 +1116,12 @@ export default function App() {
 
   function startEdit(product: Product) {
     const preparation = durationFieldsFromHours(product.preparationHours ?? 24);
+    const categorySelection = categorySelectionForProduct(product.category);
     const nextForm = {
       name: product.name,
       category: product.category,
+      mainCategory: categorySelection.mainCategory,
+      subcategory: categorySelection.subcategory,
       price: String(product.price),
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
       preparationTime: preparation.value,
@@ -2120,13 +2239,21 @@ export default function App() {
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium">Category</label>
+              <label className="block text-sm font-medium">Main category</label>
               <select
                 required
-                value={form.category}
-                onChange={(e) =>
-                  updateProductIdentity({ category: e.target.value })
-                }
+                value={form.mainCategory}
+                onChange={(e) => {
+                  const mainCategory = e.target.value;
+                  const category = savedCategories.find((item) => item.name === mainCategory);
+                  const firstSubcategory = category?.subcategories?.[0] || "";
+                  setForm({
+                    ...form,
+                    mainCategory,
+                    subcategory: firstSubcategory,
+                    category: firstSubcategory || mainCategory,
+                  });
+                }}
                 className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
               >
                 {productCategories.map((category) => (
@@ -2135,8 +2262,31 @@ export default function App() {
                   </option>
                 ))}
               </select>
+              {selectedMainSubcategories.length > 0 && (
+                <>
+                  <label className="mt-3 block text-sm font-medium">Subcategory</label>
+                  <select
+                    required
+                    value={form.subcategory || selectedMainSubcategories[0] || ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        subcategory: e.target.value,
+                        category: e.target.value,
+                      })
+                    }
+                    className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+                  >
+                    {selectedMainSubcategories.map((subcategory) => (
+                      <option key={subcategory} value={subcategory}>
+                        {subcategory}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
               <p className="mt-1 text-xs text-muted-foreground">
-                Create new categories from the Categories page.
+                Add main categories and subcategories from the Categories page.
               </p>
             </div>
             <div>
@@ -2539,7 +2689,7 @@ export default function App() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <span className="text-[11px] font-semibold uppercase tracking-widest text-caramel">
-                        Category
+                        Main category
                       </span>
                       <h3 className="mt-1 font-display text-2xl">
                         {category.name}
@@ -2554,6 +2704,55 @@ export default function App() {
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      {(category.subcategories || []).length === 0 ? (
+                        <span className="text-xs text-muted-foreground">
+                          No subcategories. Products can use this main category.
+                        </span>
+                      ) : (
+                        category.subcategories?.map((subcategory) => (
+                          <span
+                            key={subcategory}
+                            className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-primary"
+                          >
+                            {subcategory}
+                            <button
+                              type="button"
+                              onClick={() => removeSubcategory(category, subcategory)}
+                              disabled={categoryBusyId === category.id}
+                              className="text-muted-foreground hover:text-destructive disabled:opacity-60"
+                              aria-label={`Remove ${subcategory}`}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={subcategoryForms[category.id] || ""}
+                        onChange={(event) =>
+                          setSubcategoryForms((currentForms) => ({
+                            ...currentForms,
+                            [category.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Add subcategory"
+                        className="min-w-0 flex-1 rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => addSubcategory(category)}
+                        disabled={categoryBusyId === category.id}
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border hover:bg-secondary disabled:opacity-60"
+                        aria-label={`Add subcategory to ${category.name}`}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}
