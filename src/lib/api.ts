@@ -48,6 +48,14 @@ export type ProductSizeOption = {
   originalPrice?: number | null;
 };
 
+export type ProductCategory = {
+  id: string;
+  name: string;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type DeliveryLocation = {
   id: string;
   name: string;

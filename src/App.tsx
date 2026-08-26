@@ -19,6 +19,7 @@ import {
   Search,
   ShoppingBag,
   Store,
+  Tags,
   Trash2,
   Truck,
   UserRound,
@@ -41,6 +42,7 @@ import {
   type PickupLocation,
   type OrderStatus,
   type Product,
+  type ProductCategory,
   type ProductSizeOption,
 } from "./lib/api";
 import {
@@ -77,8 +79,6 @@ const emptyForm = {
   comboSize: "3",
 };
 
-const defaultProductCategories = ["Cookies", "Sweets", "Rusk", "Puff"];
-
 type ProductForm = typeof emptyForm;
 type ProductSizeForm = {
   id?: string;
@@ -89,6 +89,7 @@ type ProductSizeForm = {
 type AdminTab =
   | "orders"
   | "products"
+  | "categories"
   | "combos"
   | "locations"
   | "pickup_locations"
@@ -104,6 +105,7 @@ const emptyLocationForm = {
 
 type LocationForm = typeof emptyLocationForm;
 const emptyCouponForm = { code: "", percentageOff: "", isActive: true };
+const emptyCategoryForm = { name: "" };
 const emptyDriverForm = {
   name: "",
   username: "",
@@ -275,6 +277,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AdminTab>("orders");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [savedCategories, setSavedCategories] = useState<ProductCategory[]>([]);
   const [deliveryLocations, setDeliveryLocations] = useState<
     DeliveryLocation[]
   >([]);
@@ -306,6 +309,8 @@ export default function App() {
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationBusyId, setLocationBusyId] = useState<string | null>(null);
+  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
+  const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const [couponForm, setCouponForm] = useState(emptyCouponForm);
   const [editingCouponId, setEditingCouponId] = useState<string | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
@@ -340,6 +345,7 @@ export default function App() {
     }
     loadOrders(token);
     loadProducts(token);
+    loadCategories(token);
     loadDeliveryLocations(token);
     loadCoupons(token);
     loadDrivers(token);
@@ -354,16 +360,14 @@ export default function App() {
   const productCategories = useMemo(
     () => [
       ...new Set(
-        [
-          ...defaultProductCategories,
-          ...products.map((product) => product.category),
-          form.category,
-        ]
+        savedCategories
+          .filter((category) => category.isActive !== false)
+          .map((category) => category.name)
           .map((category) => category.trim())
           .filter(Boolean),
       ),
     ],
-    [form.category, products],
+    [savedCategories],
   );
 
   useEffect(() => {
@@ -486,6 +490,76 @@ export default function App() {
       setMessage(
         error instanceof Error ? error.message : "Could not load products",
       );
+    }
+  }
+
+  async function loadCategories(authToken = token) {
+    try {
+      setSavedCategories(
+        await apiFetch<ProductCategory[]>("/api/admin/categories", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        }),
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not load categories",
+      );
+    }
+  }
+
+  async function saveCategory(event: FormEvent) {
+    event.preventDefault();
+    const name = categoryForm.name.trim();
+    if (!name) return;
+    if (
+      savedCategories.some(
+        (category) => category.name.toLowerCase() === name.toLowerCase(),
+      )
+    ) {
+      setMessage("This category already exists.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    try {
+      const category = await apiFetch<ProductCategory>("/api/admin/categories", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name }),
+      });
+      setSavedCategories((currentCategories) => [category, ...currentCategories]);
+      setCategoryForm(emptyCategoryForm);
+      setMessage("Category saved.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not save category",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteCategory(id: string) {
+    if (!window.confirm("Delete this category?")) return;
+    setCategoryBusyId(id);
+    setMessage("");
+    try {
+      await apiFetch(`/api/admin/categories/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMessage("Category deleted.");
+      await loadCategories();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not delete category",
+      );
+    } finally {
+      setCategoryBusyId(null);
     }
   }
 
@@ -863,20 +937,20 @@ export default function App() {
     setBusy(true);
     setMessage("");
 
-    const payload = new FormData();
-    Object.entries(form).forEach(([key, value]) =>
-      payload.append(key, String(value)),
-    );
-    payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
-    payload.append("comboProductIds", JSON.stringify(form.comboProductIds));
-    payload.append("comboSize", activeTab === "combos" ? String(form.comboProductIds.length) : form.comboSize);
-    payload.append("isComboPack", String(activeTab === "combos"));
-    payload.append("comboSize", form.comboSize);
-    payload.append("imageUrls", JSON.stringify(existingImageUrls));
-    if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
-    images.forEach((file) => payload.append("images", file));
-
     try {
+      const payload = new FormData();
+      Object.entries(form).forEach(([key, value]) =>
+        payload.append(key, String(value)),
+      );
+      payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
+      payload.append("comboProductIds", JSON.stringify(form.comboProductIds));
+      payload.append("comboSize", activeTab === "combos" ? String(form.comboProductIds.length) : form.comboSize);
+      payload.append("isComboPack", String(activeTab === "combos"));
+      payload.append("comboSize", form.comboSize);
+      payload.append("imageUrls", JSON.stringify(existingImageUrls));
+      if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
+      images.forEach((file) => payload.append("images", file));
+
       await apiFetch<Product>(
         editingId ? `/api/admin/products/${editingId}` : "/api/admin/products",
         {
@@ -890,6 +964,7 @@ export default function App() {
       setImages([]);
       setMessage("Product saved.");
       await loadProducts();
+      await loadCategories();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Could not save product",
@@ -1439,6 +1514,7 @@ export default function App() {
     setRole("");
     setOrders([]);
     setProducts([]);
+    setSavedCategories([]);
     setDeliveryLocations([]);
     setSelectedOrderId(null);
     setDetailOrderId(null);
@@ -2045,23 +2121,22 @@ export default function App() {
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium">Category</label>
-              <input
+              <select
                 required
-                list="product-category-options"
                 value={form.category}
                 onChange={(e) =>
                   updateProductIdentity({ category: e.target.value })
                 }
-                placeholder="Choose or type new"
                 className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
-              />
-              <datalist id="product-category-options">
+              >
                 {productCategories.map((category) => (
-                  <option key={category} value={category} />
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
                 ))}
-              </datalist>
+              </select>
               <p className="mt-1 text-xs text-muted-foreground">
-                Pick an existing category or type a new one.
+                Create new categories from the Categories page.
               </p>
             </div>
             <div>
@@ -2396,6 +2471,93 @@ export default function App() {
                 </article>
               );
             })
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderCategoriesTab() {
+    return (
+      <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
+        <form
+          onSubmit={saveCategory}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
+          <h2 className="font-display text-2xl">Add category</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Categories saved here appear in the product category dropdown.
+          </p>
+          <label className="mt-5 block text-sm font-medium">Category name</label>
+          <input
+            required
+            value={categoryForm.name}
+            onChange={(event) =>
+              setCategoryForm({ name: event.target.value })
+            }
+            placeholder="Baklawa"
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+          />
+          <button
+            disabled={busy}
+            className="mt-5 inline-flex items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            <Plus className="h-4 w-4" />
+            {busy ? "Saving..." : "Save category"}
+          </button>
+        </form>
+
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-2xl">Categories</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {savedCategories.length} saved categories
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadCategories()}
+              className={actionButtonClass()}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
+
+          {savedCategories.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-border p-8 text-center text-muted-foreground">
+              No categories saved yet.
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {savedCategories.map((category) => (
+                <article
+                  key={category.id}
+                  className="rounded-2xl border border-border bg-background/70 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <span className="text-[11px] font-semibold uppercase tracking-widest text-caramel">
+                        Category
+                      </span>
+                      <h3 className="mt-1 font-display text-2xl">
+                        {category.name}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deleteCategory(category.id)}
+                      disabled={categoryBusyId === category.id}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-destructive/30 text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                      aria-label={`Delete ${category.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
           )}
         </div>
       </section>
@@ -3295,6 +3457,12 @@ export default function App() {
       icon: ShoppingBag,
     },
     {
+      id: "categories" as const,
+      label: "Categories",
+      count: savedCategories.length,
+      icon: Tags,
+    },
+    {
       id: "combos" as const,
       label: "Combo packs",
       count: products.filter((product) => product.isComboPack).length,
@@ -3376,6 +3544,7 @@ export default function App() {
 
         {activeTab === "orders" && renderOrdersTab()}
         {activeTab === "products" && renderProductsTab()}
+        {activeTab === "categories" && renderCategoriesTab()}
         {activeTab === "combos" && renderComboTab()}
         {activeTab === "locations" && renderLocationsTab()}
         {activeTab === "coupons" && renderCouponsTab()}
