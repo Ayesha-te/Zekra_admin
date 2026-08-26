@@ -77,6 +77,8 @@ const emptyForm = {
   comboSize: "3",
 };
 
+const defaultProductCategories = ["Cookies", "Sweets", "Rusk", "Puff"];
+
 type ProductForm = typeof emptyForm;
 type ProductSizeForm = {
   id?: string;
@@ -347,6 +349,21 @@ export default function App() {
   const editingProduct = useMemo(
     () => products.find((product) => product.id === editingId),
     [editingId, products],
+  );
+
+  const productCategories = useMemo(
+    () => [
+      ...new Set(
+        [
+          ...defaultProductCategories,
+          ...products.map((product) => product.category),
+          form.category,
+        ]
+          .map((category) => category.trim())
+          .filter(Boolean),
+      ),
+    ],
+    [form.category, products],
   );
 
   useEffect(() => {
@@ -2028,18 +2045,24 @@ export default function App() {
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium">Category</label>
-              <select
+              <input
+                required
+                list="product-category-options"
                 value={form.category}
                 onChange={(e) =>
                   updateProductIdentity({ category: e.target.value })
                 }
+                placeholder="Choose or type new"
                 className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
-              >
-                <option>Cookies</option>
-                <option>Sweets</option>
-                <option>Rusk</option>
-                <option>Puff</option>
-              </select>
+              />
+              <datalist id="product-category-options">
+                {productCategories.map((category) => (
+                  <option key={category} value={category} />
+                ))}
+              </datalist>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Pick an existing category or type a new one.
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium">Tag</label>
