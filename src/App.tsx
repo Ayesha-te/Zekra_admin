@@ -1062,7 +1062,6 @@ export default function App() {
       payload.append("comboProductIds", JSON.stringify(form.comboProductIds));
       payload.append("comboSize", activeTab === "combos" ? String(form.comboProductIds.length) : form.comboSize);
       payload.append("isComboPack", String(activeTab === "combos"));
-      payload.append("comboSize", form.comboSize);
       payload.append("imageUrls", JSON.stringify(existingImageUrls));
       if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
       images.forEach((file) => payload.append("images", file));
@@ -2769,7 +2768,7 @@ export default function App() {
       <section className="mt-8 grid gap-8 lg:grid-cols-[420px_1fr]">
         <form onSubmit={saveProduct} className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass">
           <div className="flex items-center justify-between gap-3"><h2 className="font-display text-2xl">{editingId ? "Edit combo pack" : "Add combo pack"}</h2>{editingId && <button type="button" onClick={resetProductForm} className="text-sm text-primary">New combo</button>}</div>
-          <p className="mt-1 text-sm text-muted-foreground">Create a pack without adding a regular product.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Create a pack with a fixed price, thumbnail, and selected products.</p>
           <label className="mt-5 block text-sm font-medium">Combo name</label>
           <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, isComboPack: true })} placeholder="Combo of 3 assorted sweets" className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary" />
           <label className="mt-4 block text-sm font-medium">Discounted price AED</label>
@@ -2785,8 +2784,8 @@ export default function App() {
           </div>
           <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-primary/40 bg-secondary/50 px-4 py-5 text-sm font-medium text-primary">
             <ImagePlus className="h-5 w-5" />
-            {images.length ? `${images.length} combo image${images.length === 1 ? "" : "s"} selected` : "Add combo pictures (optional)"}
-            <input type="file" accept="image/*" multiple onChange={(e) => { handleImageSelection(e.target.files); e.currentTarget.value = ""; }} className="hidden" />
+            {images.length ? "Combo thumbnail selected" : existingImageUrls.length ? "Replace combo thumbnail" : "Add combo thumbnail (required)"}
+            <input type="file" accept="image/*" onChange={(e) => { handleImageSelection(e.target.files); e.currentTarget.value = ""; }} className="hidden" />
           </label>
           {(existingImageUrls.length > 0 || imagePreviewUrls.length > 0) && <div className="mt-3 grid grid-cols-3 gap-2">
             {existingImageUrls.map((url) => <img key={url} src={assetUrl(url)} alt="Combo" className="aspect-square rounded-xl object-cover" />)}
