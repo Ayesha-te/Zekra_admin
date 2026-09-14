@@ -103,6 +103,14 @@ export type AdminOrder = {
     quantity: number;
     unitPrice: number;
     lineTotal?: number;
+    comboSelections?: string[];
+    comboSelectionItems?: Array<{
+      productId?: string;
+      name: string;
+      sizeId?: string;
+      sizeLabel?: string;
+      unitPrice?: number;
+    }>;
   }[];
   totals: {
     currency?: string;

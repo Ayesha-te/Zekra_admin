@@ -72,6 +72,23 @@ export function orderLineTotal(item: AdminOrder["items"][number]) {
   return Number((quantity * unitPrice).toFixed(2));
 }
 
+export function orderItemLabel(item: AdminOrder["items"][number]) {
+  const comboSummary = Array.isArray(item.comboSelectionItems)
+    ? item.comboSelectionItems
+        .map((selection) => {
+          const name = String(selection.name || "").trim();
+          const sizeLabel = String(selection.sizeLabel || "").trim();
+          if (!name) return "";
+          return sizeLabel ? `${name} (${sizeLabel})` : name;
+        })
+        .filter(Boolean)
+        .join(", ")
+    : "";
+
+  if (comboSummary) return `${item.name} - Selected sizes: ${comboSummary}`;
+  return item.sizeLabel ? `${item.name} (${item.sizeLabel})` : item.name;
+}
+
 export function orderSubtotal(order: AdminOrder) {
   const saved = Number(order.totals.subtotal);
   if (Number.isFinite(saved)) return saved;
@@ -177,7 +194,7 @@ export function downloadOrdersCsv(orders: AdminOrder[]) {
     order.items
       .map(
         (item) =>
-          `${item.quantity} x ${item.name}${item.sizeLabel ? ` (${item.sizeLabel})` : ""} @ ${Number(item.unitPrice || 0).toFixed(2)} = ${orderLineTotal(item).toFixed(2)}`,
+          `${item.quantity} x ${orderItemLabel(item)} @ ${Number(item.unitPrice || 0).toFixed(2)} = ${orderLineTotal(item).toFixed(2)}`,
       )
       .join("; "),
   ]);
@@ -368,7 +385,7 @@ function createOrderPdf(order: AdminOrder) {
     order.items.forEach((item) => {
       tableRow(
         [
-          item.sizeLabel ? `${item.name} - Size: ${item.sizeLabel}` : item.name,
+          orderItemLabel(item),
           String(item.quantity),
           formatMoney(item.unitPrice),
           formatMoney(orderLineTotal(item)),

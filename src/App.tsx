@@ -1571,6 +1571,15 @@ export default function App() {
                           Size: {item.sizeLabel}
                         </p>
                       )}
+                      {comboSelectionDetails(item).length > 0 && (
+                        <div className="mt-1 text-xs font-semibold text-caramel">
+                          {comboSelectionDetails(item).map((selection) => (
+                            <p key={`${selection.name}-${selection.sizeLabel || "regular"}`}>
+                              {selection.name}{selection.sizeLabel ? ` - ${selection.sizeLabel}` : ""}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                       <p className="mt-1 text-xs text-muted-foreground">
                         {formatMoney(item.unitPrice)} each
                       </p>
@@ -2125,6 +2134,15 @@ export default function App() {
                                     <p className="mt-1 text-xs font-semibold text-caramel">
                                       Size: {item.sizeLabel}
                                     </p>
+                                  )}
+                                  {comboSelectionDetails(item).length > 0 && (
+                                    <div className="mt-1 text-xs font-semibold text-caramel">
+                                      {comboSelectionDetails(item).map((selection) => (
+                                        <p key={`${selection.name}-${selection.sizeLabel || "regular"}`}>
+                                          {selection.name}{selection.sizeLabel ? ` - ${selection.sizeLabel}` : ""}
+                                        </p>
+                                      ))}
+                                    </div>
                                   )}
                                   <p className="mt-1 text-xs text-muted-foreground">
                                     {formatMoney(item.unitPrice)} each
@@ -3803,6 +3821,19 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <dd className="min-w-0 break-words font-semibold">{value}</dd>
     </div>
   );
+}
+
+function comboSelectionDetails(item: {
+  comboSelectionItems?: Array<{ name: string; sizeLabel?: string }>;
+}) {
+  return Array.isArray(item.comboSelectionItems)
+    ? item.comboSelectionItems
+        .map((selection) => ({
+          name: String(selection.name || "").trim(),
+          sizeLabel: String(selection.sizeLabel || "").trim(),
+        }))
+        .filter((selection) => selection.name)
+    : [];
 }
 
 function TotalRow({
