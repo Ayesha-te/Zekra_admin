@@ -1883,6 +1883,19 @@ export default function App() {
                             <Download className="h-3.5 w-3.5" />
                             PDF
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteOrder(order.id)}
+                            disabled={updating}
+                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-60 lg:w-full lg:flex-none"
+                          >
+                            {updating ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                            Delete
+                          </button>
                         </div>
                       </article>
                     );
@@ -1907,29 +1920,14 @@ export default function App() {
                           {formatDateTime(activeOrder.createdAt)}
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => downloadOrderPdf(activeOrder)}
-                          className={actionButtonClass()}
-                        >
-                          <Download className="h-4 w-4" />
-                          PDF
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteOrder(activeOrder.id)}
-                          disabled={orderBusyId === activeOrder.id}
-                          className={actionButtonClass("danger")}
-                        >
-                          {orderBusyId === activeOrder.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                          Delete
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => downloadOrderPdf(activeOrder)}
+                        className={actionButtonClass()}
+                      >
+                        <Download className="h-4 w-4" />
+                        PDF
+                      </button>
                     </div>
 
                     <div className="mt-5 rounded-xl border border-border bg-card p-3">
