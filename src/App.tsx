@@ -30,6 +30,7 @@ import {
   apiFetch,
   assetUrl,
   productImageError,
+  deleteAdminOrder,
   fetchAdminOrders,
   fetchDriverOrders,
   fetchPickupOrders,
@@ -965,6 +966,37 @@ export default function App() {
     }
   }
 
+  async function deleteOrder(orderId: string) {
+    const order = orders.find((item) => item.id === orderId);
+    const label = order?.customer.name || orderId;
+    if (!confirm(`Delete test order "${label}"? This cannot be undone.`)) return;
+
+    setOrderBusyId(orderId);
+    setMessage("");
+    try {
+      await deleteAdminOrder(token, orderId);
+      setOrders((currentOrders) => {
+        const nextOrders = currentOrders.filter((item) => item.id !== orderId);
+        setSelectedOrderId((currentId) =>
+          currentId === orderId ? (nextOrders[0]?.id ?? null) : currentId,
+        );
+        return nextOrders;
+      });
+      setDetailOrderId((currentId) => (currentId === orderId ? null : currentId));
+      setPickupOrderSelections((currentSelections) => {
+        const { [orderId]: _deleted, ...nextSelections } = currentSelections;
+        return nextSelections;
+      });
+      setMessage("Test order deleted.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not delete order",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
+  }
+
   async function saveCoupon(event: FormEvent) {
     event.preventDefault();
     setCouponBusy(true);
@@ -1875,14 +1907,29 @@ export default function App() {
                           {formatDateTime(activeOrder.createdAt)}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => downloadOrderPdf(activeOrder)}
-                        className={actionButtonClass()}
-                      >
-                        <Download className="h-4 w-4" />
-                        PDF
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => downloadOrderPdf(activeOrder)}
+                          className={actionButtonClass()}
+                        >
+                          <Download className="h-4 w-4" />
+                          PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteOrder(activeOrder.id)}
+                          disabled={orderBusyId === activeOrder.id}
+                          className={actionButtonClass("danger")}
+                        >
+                          {orderBusyId === activeOrder.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                          Delete
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-5 rounded-xl border border-border bg-card p-3">

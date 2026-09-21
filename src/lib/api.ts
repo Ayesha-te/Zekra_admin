@@ -200,6 +200,13 @@ export function updateAdminOrderStatus(token: string, id: string, status: OrderS
   });
 }
 
+export function deleteAdminOrder(token: string, id: string) {
+  return apiFetch<void>(`/api/admin/orders/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export function fetchDriverOrders(token: string) {
   return apiFetch<AdminOrder[]>("/api/driver/orders", { headers: { Authorization: `Bearer ${token}` } });
 }
