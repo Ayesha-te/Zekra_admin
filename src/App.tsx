@@ -36,6 +36,7 @@ import {
   fetchPickupOrders,
   markPickupOrderCollected,
   markDriverOrderDelivered,
+  updateAdminOrderStatus,
   type AdminOrder,
   type DeliveryLocation,
   type Coupon,
@@ -966,6 +967,32 @@ export default function App() {
     }
   }
 
+  async function cancelOrder(orderId: string) {
+    const order = orders.find((item) => item.id === orderId);
+    const label = order?.customer.name || orderId;
+    if (!confirm(`Cancel order for "${label}"? The customer will receive a cancellation email.`)) return;
+
+    setOrderBusyId(orderId);
+    setMessage("");
+    try {
+      const updated = await updateAdminOrderStatus(token, orderId, "cancelled");
+      setOrders((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setMessage(
+        updated.notification?.status === "sent"
+          ? "Order cancelled. The customer was emailed."
+          : "Order cancelled. The customer email could not be sent.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not cancel order",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
+  }
+
   async function deleteOrder(orderId: string) {
     const order = orders.find((item) => item.id === orderId);
     const label = order?.customer.name || orderId;
@@ -1448,6 +1475,24 @@ export default function App() {
               )
                 ? "Order confirmed"
                 : "Confirm order"}
+            </button>
+          </section>
+          <section className="rounded-2xl border border-destructive/25 bg-destructive/5 p-4">
+            <h4 className="font-display text-lg">Cancel order</h4>
+            <p className="mt-1 text-sm text-muted-foreground">
+              The customer will receive a professional cancellation email.
+            </p>
+            <button
+              type="button"
+              onClick={() => cancelOrder(order.id)}
+              disabled={
+                orderBusyId === order.id ||
+                ["completed", "collected", "cancelled"].includes(order.status)
+              }
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-destructive/40 px-5 py-3 font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <X className="h-4 w-4" />
+              {order.status === "cancelled" ? "Order cancelled" : "Cancel order"}
             </button>
           </section>
           {fulfillmentMode(order) === "delivery" && (
@@ -1989,6 +2034,24 @@ export default function App() {
                           )
                             ? "Order confirmed"
                             : "Confirm order"}
+                        </button>
+                      </section>
+                      <section className="rounded-2xl border border-destructive/25 bg-destructive/5 p-4">
+                        <h4 className="font-display text-lg">Cancel order</h4>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          This updates the order and emails the customer a professional apology.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => cancelOrder(activeOrder.id)}
+                          disabled={
+                            orderBusyId === activeOrder.id ||
+                            ["completed", "collected", "cancelled"].includes(activeOrder.status)
+                          }
+                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-destructive/40 px-5 py-3 font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <X className="h-4 w-4" />
+                          {activeOrder.status === "cancelled" ? "Order cancelled" : "Cancel order"}
                         </button>
                       </section>
                       {fulfillmentMode(activeOrder) === "delivery" && (
