@@ -1477,24 +1477,6 @@ export default function App() {
                 : "Confirm order"}
             </button>
           </section>
-          <section className="rounded-2xl border border-destructive/25 bg-destructive/5 p-4">
-            <h4 className="font-display text-lg">Cancel order</h4>
-            <p className="mt-1 text-sm text-muted-foreground">
-              The customer will receive a professional cancellation email.
-            </p>
-            <button
-              type="button"
-              onClick={() => cancelOrder(order.id)}
-              disabled={
-                orderBusyId === order.id ||
-                ["completed", "collected", "cancelled"].includes(order.status)
-              }
-              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-destructive/40 px-5 py-3 font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <X className="h-4 w-4" />
-              {order.status === "cancelled" ? "Order cancelled" : "Cancel order"}
-            </button>
-          </section>
           {fulfillmentMode(order) === "delivery" && (
             <section className="rounded-2xl border border-border bg-card p-4">
               <h4 className="font-display text-lg">Order assigned to</h4>
@@ -1930,6 +1912,24 @@ export default function App() {
                           </button>
                           <button
                             type="button"
+                            onClick={() => cancelOrder(order.id)}
+                            disabled={
+                              updating ||
+                              ["completed", "collected", "cancelled"].includes(
+                                order.status,
+                              )
+                            }
+                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50 lg:w-full lg:flex-none"
+                          >
+                            {updating ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <X className="h-3.5 w-3.5" />
+                            )}
+                            {order.status === "cancelled" ? "Cancelled" : "Cancel"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => deleteOrder(order.id)}
                             disabled={updating}
                             className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-60 lg:w-full lg:flex-none"
@@ -2034,24 +2034,6 @@ export default function App() {
                           )
                             ? "Order confirmed"
                             : "Confirm order"}
-                        </button>
-                      </section>
-                      <section className="rounded-2xl border border-destructive/25 bg-destructive/5 p-4">
-                        <h4 className="font-display text-lg">Cancel order</h4>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          This updates the order and emails the customer a professional apology.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => cancelOrder(activeOrder.id)}
-                          disabled={
-                            orderBusyId === activeOrder.id ||
-                            ["completed", "collected", "cancelled"].includes(activeOrder.status)
-                          }
-                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-destructive/40 px-5 py-3 font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <X className="h-4 w-4" />
-                          {activeOrder.status === "cancelled" ? "Order cancelled" : "Cancel order"}
                         </button>
                       </section>
                       {fulfillmentMode(activeOrder) === "delivery" && (
