@@ -306,6 +306,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [orderBusyId, setOrderBusyId] = useState<string | null>(null);
+  const [statusDrafts, setStatusDrafts] = useState<Record<string, OrderStatus>>({});
+  const [statusEmailChoices, setStatusEmailChoices] = useState<Record<string, boolean>>({});
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] =
     useState<OrderFilter>("all");
@@ -967,6 +969,118 @@ export default function App() {
     }
   }
 
+  function manualStatusOptions(order: AdminOrder) {
+    const isPickup = fulfillmentMode(order) === "pickup";
+    return orderStatuses.filter((status) =>
+      isPickup
+        ? status !== "out_for_delivery" && status !== "completed"
+        : status !== "collected",
+    );
+  }
+
+  async function changeOrderStatusManually(order: AdminOrder) {
+    const status = statusDrafts[order.id] ?? order.status;
+    if (status === order.status) {
+      setMessage("Choose a different status first.");
+      return;
+    }
+    const notifyCustomer = statusEmailChoices[order.id] === true;
+    const finalWarning = ["completed", "collected", "cancelled"].includes(status)
+      ? " Finished or cancelled orders cannot be changed again."
+      : "";
+    if (
+      !confirm(
+        `Change order ${order.id} to "${orderStatusLabels[status]}"?${
+          notifyCustomer ? " The customer WILL be emailed." : " No email will be sent to the customer."
+        }${finalWarning}`,
+      )
+    )
+      return;
+
+    setOrderBusyId(order.id);
+    setMessage("");
+    try {
+      const updated = await updateAdminOrderStatus(token, order.id, status, notifyCustomer);
+      setOrders((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setStatusDrafts((current) => {
+        const next = { ...current };
+        delete next[order.id];
+        return next;
+      });
+      setMessage(
+        !notifyCustomer
+          ? `Status changed to ${orderStatusLabels[status]}. No email was sent.`
+          : updated.notification?.status === "sent"
+            ? `Status changed to ${orderStatusLabels[status]}. The customer was emailed.`
+            : `Status changed to ${orderStatusLabels[status]}. The customer email could not be sent.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not change order status",
+      );
+    } finally {
+      setOrderBusyId(null);
+    }
+  }
+
+  function renderManualStatus(order: AdminOrder) {
+    const isFinished = ["completed", "collected", "cancelled"].includes(order.status);
+    const draft = statusDrafts[order.id] ?? order.status;
+    return (
+      <section className="rounded-2xl border border-border bg-card p-4">
+        <h4 className="font-display text-lg">Change status manually</h4>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {isFinished
+            ? "This order is finished or cancelled, so its status can no longer be changed."
+            : "Update the order status without emailing the customer. Tick the box only if you want them emailed."}
+        </p>
+        <select
+          value={draft}
+          onChange={(event) =>
+            setStatusDrafts((current) => ({
+              ...current,
+              [order.id]: event.target.value as OrderStatus,
+            }))
+          }
+          disabled={isFinished || orderBusyId === order.id}
+          aria-label="New order status"
+          className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"
+        >
+          {manualStatusOptions(order).map((status) => (
+            <option key={status} value={status}>
+              {orderStatusLabels[status]}
+            </option>
+          ))}
+        </select>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={statusEmailChoices[order.id] === true}
+            onChange={(event) =>
+              setStatusEmailChoices((current) => ({
+                ...current,
+                [order.id]: event.target.checked,
+              }))
+            }
+            disabled={isFinished || orderBusyId === order.id}
+          />
+          Also email the customer about this change
+        </label>
+        <button
+          type="button"
+          onClick={() => changeOrderStatusManually(order)}
+          disabled={isFinished || orderBusyId === order.id || draft === order.status}
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-border bg-background px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Update status
+        </button>
+      </section>
+    );
+  }
+
   async function cancelOrder(orderId: string) {
     const order = orders.find((item) => item.id === orderId);
     const label = order?.customer.name || orderId;
@@ -1477,6 +1591,7 @@ export default function App() {
                 : "Confirm order"}
             </button>
           </section>
+          {renderManualStatus(order)}
           {fulfillmentMode(order) === "delivery" && (
             <section className="rounded-2xl border border-border bg-card p-4">
               <h4 className="font-display text-lg">Order assigned to</h4>
@@ -2036,6 +2151,7 @@ export default function App() {
                             : "Confirm order"}
                         </button>
                       </section>
+                      {renderManualStatus(activeOrder)}
                       {fulfillmentMode(activeOrder) === "delivery" && (
                         <section className="rounded-2xl border border-border bg-card p-4">
                           <h4 className="font-display text-lg">

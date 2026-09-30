@@ -189,14 +189,19 @@ export function fetchAdminOrders(token: string) {
   });
 }
 
-export function updateAdminOrderStatus(token: string, id: string, status: OrderStatus) {
+export function updateAdminOrderStatus(
+  token: string,
+  id: string,
+  status: OrderStatus,
+  notifyCustomer = true,
+) {
   return apiFetch<AdminOrder>(`/api/admin/orders/${encodeURIComponent(id)}/status`, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, notifyCustomer }),
   });
 }
 
