@@ -1025,17 +1025,20 @@ export default function App() {
     }
   }
 
-  function renderManualStatus(order: AdminOrder) {
+  function renderStatusCell(order: AdminOrder) {
     const isFinished = ["completed", "collected", "cancelled"].includes(order.status);
+    const busy = orderBusyId === order.id;
     const draft = statusDrafts[order.id] ?? order.status;
-    return (
-      <section className="rounded-2xl border border-border bg-card p-4">
-        <h4 className="font-display text-lg">Change status manually</h4>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {isFinished
-            ? "This order is finished or cancelled, so its status can no longer be changed."
-            : "Update the order status without emailing the customer. Tick the box only if you want them emailed."}
+    if (isFinished) {
+      return (
+        <p className="text-xs text-muted-foreground">
+          <span className="text-xs font-medium lg:hidden">Change status: </span>
+          Locked
         </p>
+      );
+    }
+    return (
+      <div className="flex min-w-0 flex-col gap-1.5">
         <select
           value={draft}
           onChange={(event) =>
@@ -1044,9 +1047,9 @@ export default function App() {
               [order.id]: event.target.value as OrderStatus,
             }))
           }
-          disabled={isFinished || orderBusyId === order.id}
-          aria-label="New order status"
-          className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-3"
+          disabled={busy}
+          aria-label={`New status for order ${order.id}`}
+          className="h-9 w-full rounded-xl border border-border bg-background px-2 text-xs font-semibold"
         >
           {manualStatusOptions(order).map((status) => (
             <option key={status} value={status}>
@@ -1054,7 +1057,7 @@ export default function App() {
             </option>
           ))}
         </select>
-        <label className="mt-3 flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <input
             type="checkbox"
             checked={statusEmailChoices[order.id] === true}
@@ -1064,20 +1067,24 @@ export default function App() {
                 [order.id]: event.target.checked,
               }))
             }
-            disabled={isFinished || orderBusyId === order.id}
+            disabled={busy}
           />
-          Also email the customer about this change
+          Email customer
         </label>
         <button
           type="button"
           onClick={() => changeOrderStatusManually(order)}
-          disabled={isFinished || orderBusyId === order.id || draft === order.status}
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-border bg-background px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={busy || draft === order.status}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold transition hover:bg-card disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <RefreshCw className="h-4 w-4" />
-          Update status
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          Save
         </button>
-      </section>
+      </div>
     );
   }
 
@@ -1591,7 +1598,6 @@ export default function App() {
                 : "Confirm order"}
             </button>
           </section>
-          {renderManualStatus(order)}
           {fulfillmentMode(order) === "delivery" && (
             <section className="rounded-2xl border border-border bg-card p-4">
               <h4 className="font-display text-lg">Order assigned to</h4>
@@ -1934,15 +1940,16 @@ export default function App() {
               No orders match those filters.
             </div>
           ) : (
-            <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="overflow-hidden rounded-2xl border border-border">
-                <div className="hidden grid-cols-[minmax(120px,1fr)_minmax(125px,0.95fr)_minmax(150px,1.1fr)_44px_86px_118px_104px] gap-2 border-b border-border bg-muted/70 px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground lg:grid">
+            <div className="mt-5 grid items-start gap-5">
+              <div className="overflow-x-auto rounded-2xl border border-border">
+                <div className="hidden grid-cols-[minmax(110px,1fr)_minmax(115px,0.95fr)_minmax(130px,1.1fr)_44px_86px_112px_136px_104px] gap-2 border-b border-border bg-muted/70 px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground lg:grid">
                   <span>Order / date</span>
                   <span>Customer</span>
                   <span>Fulfillment</span>
                   <span>Items</span>
                   <span>Total</span>
                   <span>Status</span>
+                  <span>Change status</span>
                   <span>Actions</span>
                 </div>
 
@@ -1954,7 +1961,7 @@ export default function App() {
                     return (
                       <article
                         key={order.id}
-                        className={`grid gap-3 bg-background/60 p-4 transition hover:bg-secondary/30 lg:grid-cols-[minmax(120px,1fr)_minmax(125px,0.95fr)_minmax(150px,1.1fr)_44px_86px_118px_104px] lg:items-center lg:gap-2 lg:px-3 ${
+                        className={`grid gap-3 bg-background/60 p-4 transition hover:bg-secondary/30 lg:grid-cols-[minmax(110px,1fr)_minmax(115px,0.95fr)_minmax(130px,1.1fr)_44px_86px_112px_136px_104px] lg:items-center lg:gap-2 lg:px-3 ${
                           selected ? "bg-secondary/45" : ""
                         }`}
                       >
@@ -2008,6 +2015,7 @@ export default function App() {
                             />
                           </div>
                         </div>
+                        {renderStatusCell(order)}
                         <div className="flex min-w-0 flex-wrap items-center gap-2 lg:flex-col lg:items-stretch lg:gap-1.5">
                           <button
                             type="button"
@@ -2063,7 +2071,7 @@ export default function App() {
                 </div>
               </div>
 
-              <aside className="h-fit rounded-2xl border border-border bg-background/70 p-4 xl:sticky xl:top-6">
+              <aside className="h-fit rounded-2xl border border-border bg-background/70 p-4">
                 {activeOrder ? (
                   <div>
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2151,7 +2159,6 @@ export default function App() {
                             : "Confirm order"}
                         </button>
                       </section>
-                      {renderManualStatus(activeOrder)}
                       {fulfillmentMode(activeOrder) === "delivery" && (
                         <section className="rounded-2xl border border-border bg-card p-4">
                           <h4 className="font-display text-lg">
