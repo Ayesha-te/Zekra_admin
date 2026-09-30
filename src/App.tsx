@@ -1940,9 +1940,9 @@ export default function App() {
               No orders match those filters.
             </div>
           ) : (
-            <div className="mt-5 grid items-start gap-5">
+            <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className="overflow-x-auto rounded-2xl border border-border">
-                <div className="hidden grid-cols-[minmax(110px,1fr)_minmax(115px,0.95fr)_minmax(130px,1.1fr)_44px_86px_112px_136px_104px] gap-2 border-b border-border bg-muted/70 px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground lg:grid">
+                <div className="hidden grid-cols-[minmax(90px,0.9fr)_minmax(100px,1fr)_minmax(105px,1.1fr)_36px_86px_104px_124px_92px] gap-2 border-b border-border bg-muted/70 px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground lg:grid">
                   <span>Order / date</span>
                   <span>Customer</span>
                   <span>Fulfillment</span>
@@ -1961,7 +1961,7 @@ export default function App() {
                     return (
                       <article
                         key={order.id}
-                        className={`grid gap-3 bg-background/60 p-4 transition hover:bg-secondary/30 lg:grid-cols-[minmax(110px,1fr)_minmax(115px,0.95fr)_minmax(130px,1.1fr)_44px_86px_112px_136px_104px] lg:items-center lg:gap-2 lg:px-3 ${
+                        className={`grid gap-3 bg-background/60 p-4 transition hover:bg-secondary/30 lg:grid-cols-[minmax(90px,0.9fr)_minmax(100px,1fr)_minmax(105px,1.1fr)_36px_86px_104px_124px_92px] lg:items-center lg:gap-2 lg:px-3 ${
                           selected ? "bg-secondary/45" : ""
                         }`}
                       >
@@ -1982,7 +1982,7 @@ export default function App() {
                           </p>
                         </div>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">
+                          <p className="text-sm font-semibold leading-snug">
                             {fulfillmentLabel(order)}
                           </p>
                           <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -2071,7 +2071,7 @@ export default function App() {
                 </div>
               </div>
 
-              <aside className="h-fit rounded-2xl border border-border bg-background/70 p-4">
+              <aside className="h-fit rounded-2xl border border-border bg-background/70 p-4 xl:sticky xl:top-6">
                 {activeOrder ? (
                   <div>
                     <div className="flex flex-wrap items-start justify-between gap-3">
