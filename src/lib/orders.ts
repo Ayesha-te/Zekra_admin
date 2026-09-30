@@ -118,6 +118,9 @@ export function paymentMethodLabel(order: AdminOrder) {
     .trim()
     .toLowerCase();
   if (method === "stripe") return "Stripe";
+  if (method === "cash_on_delivery") return "Cash on delivery";
+  if (method === "cash_on_pickup") return "Cash on pickup";
+  if (method === "no_payment_required") return "No payment required";
   return method
     ? method.replace(/^\w/, (letter) => letter.toUpperCase())
     : "Not set";

@@ -3673,6 +3673,20 @@ export default function App() {
                       {order.fulfillment.address || "No address"}
                     </p>
                   </div>
+                  {order.payment?.method === "cash_on_delivery" && order.payment?.status !== "paid" ? (
+                    <div className="mt-4 rounded-2xl border-2 border-primary bg-primary/10 p-4">
+                      <div className="text-xs font-bold uppercase tracking-wider text-primary">
+                        Cash on delivery
+                      </div>
+                      <p className="mt-1 font-display text-2xl">
+                        Collect {formatMoney(orderTotal(order))}
+                      </p>
+                    </div>
+                  ) : order.payment?.status === "paid" ? (
+                    <div className="mt-4 rounded-2xl bg-muted/50 p-4 text-sm font-semibold">
+                      Already paid ({paymentMethodLabel(order)}). Do not collect cash.
+                    </div>
+                  ) : null}
                   <div className="mt-4 space-y-2 text-sm">
                     {order.items.map((item, index) => (
                       <div
@@ -3694,7 +3708,9 @@ export default function App() {
                       className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60"
                     >
                       <CheckCircle2 className="mr-2 inline h-4 w-4" />
-                      Mark delivered
+                      {order.payment?.method === "cash_on_delivery" && order.payment?.status !== "paid"
+                        ? "Mark delivered & cash collected"
+                        : "Mark delivered"}
                     </button>
                   )}
                 </article>
