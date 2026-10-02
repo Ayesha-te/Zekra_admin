@@ -41,6 +41,8 @@ import {
   type DeliveryLocation,
   type Coupon,
   type Driver,
+  type DepartmentPermission,
+  type DepartmentUser,
   type PickupLocation,
   type OrderStatus,
   type Product,
@@ -98,7 +100,8 @@ type AdminTab =
   | "locations"
   | "pickup_locations"
   | "coupons"
-  | "drivers";
+  | "drivers"
+  | "department_users";
 type OrderFilter = OrderStatus | "all";
 
 const emptyLocationForm = {
@@ -116,6 +119,13 @@ const emptyDriverForm = {
   username: "",
   contact: "",
   password: "",
+  isActive: true,
+};
+const emptyDepartmentUserForm = {
+  name: "",
+  username: "",
+  password: "",
+  permissions: ["products"] as DepartmentPermission[],
   isActive: true,
 };
 const emptyPickupForm = {
@@ -279,6 +289,7 @@ function shortOrderDate(value: string) {
 export default function App() {
   const [token, setToken] = useState("");
   const [role, setRole] = useState("");
+  const [permissions, setPermissions] = useState<DepartmentPermission[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>("orders");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -325,6 +336,9 @@ export default function App() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [driverForm, setDriverForm] = useState(emptyDriverForm);
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
+  const [departmentUsers, setDepartmentUsers] = useState<DepartmentUser[]>([]);
+  const [departmentUserForm, setDepartmentUserForm] = useState(emptyDepartmentUserForm);
+  const [editingDepartmentUserId, setEditingDepartmentUserId] = useState<string | null>(null);
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
   const [pickupForm, setPickupForm] = useState(emptyPickupForm);
   const [editingPickupId, setEditingPickupId] = useState<string | null>(null);
@@ -339,7 +353,22 @@ export default function App() {
   useEffect(() => {
     setToken(localStorage.getItem("adminToken") || "");
     setRole(localStorage.getItem("adminRole") || "admin");
+    setPermissions(
+      JSON.parse(localStorage.getItem("adminPermissions") || "[]") as DepartmentPermission[],
+    );
   }, []);
+
+  const canAccess = (permission: DepartmentPermission) =>
+    role === "admin" || permissions.includes(permission);
+
+  useEffect(() => {
+    if (role !== "department_user") return;
+    if (canAccess("products")) {
+      setActiveTab("products");
+    } else if (canAccess("categories")) {
+      setActiveTab("categories");
+    }
+  }, [role, permissions]);
 
   useEffect(() => {
     if (!token) return;
@@ -351,14 +380,17 @@ export default function App() {
       loadPickupOrders(token);
       return;
     }
-    loadOrders(token);
-    loadProducts(token);
-    loadCategories(token);
-    loadDeliveryLocations(token);
-    loadCoupons(token);
-    loadDrivers(token);
-    loadPickupLocations(token);
-  }, [token, role]);
+    if (role === "admin") {
+      loadOrders(token);
+      loadDeliveryLocations(token);
+      loadCoupons(token);
+      loadDrivers(token);
+      loadPickupLocations(token);
+      loadDepartmentUsers(token);
+    }
+    if (canAccess("products")) loadProducts(token);
+    if (canAccess("categories")) loadCategories(token);
+  }, [token, role, permissions]);
 
   const editingProduct = useMemo(
     () => products.find((product) => product.id === editingId),
@@ -730,6 +762,20 @@ export default function App() {
     }
   }
 
+  async function loadDepartmentUsers(authToken = token) {
+    try {
+      setDepartmentUsers(
+        await apiFetch<DepartmentUser[]>("/api/admin/department-users", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        }),
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not load department users",
+      );
+    }
+  }
+
   async function loadDriverOrders(authToken = token) {
     setOrdersLoading(true);
     try {
@@ -912,6 +958,53 @@ export default function App() {
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Could not delete driver",
+      );
+    }
+  }
+
+  async function saveDepartmentUser(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      await apiFetch<DepartmentUser>(
+        editingDepartmentUserId
+          ? `/api/admin/department-users/${editingDepartmentUserId}`
+          : "/api/admin/department-users",
+        {
+          method: editingDepartmentUserId ? "PUT" : "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(departmentUserForm),
+        },
+      );
+      setDepartmentUserForm(emptyDepartmentUserForm);
+      setEditingDepartmentUserId(null);
+      setMessage("Department user saved.");
+      await loadDepartmentUsers();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not save department user",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteDepartmentUser(id: string) {
+    if (!confirm("Delete this department user account?")) return;
+    try {
+      await apiFetch(`/api/admin/department-users/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMessage("Department user deleted.");
+      await loadDepartmentUsers();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not delete department user",
       );
     }
   }
@@ -1208,7 +1301,11 @@ export default function App() {
     setBusy(true);
     setMessage("");
     try {
-      const result = await apiFetch<{ token: string; role: string }>(
+      const result = await apiFetch<{
+        token: string;
+        role: string;
+        user?: { permissions?: DepartmentPermission[] };
+      }>(
         "/api/auth/login",
         {
           method: "POST",
@@ -1218,8 +1315,11 @@ export default function App() {
       );
       localStorage.setItem("adminToken", result.token);
       localStorage.setItem("adminRole", result.role);
+      const nextPermissions = result.user?.permissions || [];
+      localStorage.setItem("adminPermissions", JSON.stringify(nextPermissions));
       setToken(result.token);
       setRole(result.role);
+      setPermissions(nextPermissions);
       setPassword("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Login failed");
@@ -1817,9 +1917,12 @@ export default function App() {
   function logout() {
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminRole");
+    localStorage.removeItem("adminPermissions");
     setToken("");
     setRole("");
     setOrders([]);
+    setPermissions([]);
+    setDepartmentUsers([]);
     setProducts([]);
     setSavedCategories([]);
     setDeliveryLocations([]);
@@ -3480,6 +3583,112 @@ export default function App() {
     );
   }
 
+  function renderDepartmentUsersTab() {
+    return (
+      <section className="mt-8 grid gap-4 lg:grid-cols-[380px_1fr]">
+        <form
+          onSubmit={saveDepartmentUser}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
+          <h2 className="font-display text-2xl">
+            {editingDepartmentUserId ? "Edit department user" : "Add department user"}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Give a team member access to products, categories, or both.
+          </p>
+          {(["name", "username", "password"] as const).map((field) => (
+            <label key={field} className="mt-4 block text-sm font-medium">
+              {field === "username" ? "Login username" : field[0].toUpperCase() + field.slice(1)}
+              <input
+                required={field !== "password" || !editingDepartmentUserId}
+                type={field === "password" ? "password" : "text"}
+                value={departmentUserForm[field]}
+                onChange={(event) =>
+                  setDepartmentUserForm({ ...departmentUserForm, [field]: event.target.value })
+                }
+                placeholder={field === "password" && editingDepartmentUserId ? "Leave blank to keep password" : undefined}
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3"
+              />
+            </label>
+          ))}
+          <fieldset className="mt-5">
+            <legend className="text-sm font-medium">Departments</legend>
+            <div className="mt-2 space-y-2">
+              {(["products", "categories"] as const).map((permission) => (
+                <label key={permission} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={departmentUserForm.permissions.includes(permission)}
+                    onChange={(event) =>
+                      setDepartmentUserForm({
+                        ...departmentUserForm,
+                        permissions: event.target.checked
+                          ? [...departmentUserForm.permissions, permission]
+                          : departmentUserForm.permissions.filter((item) => item !== permission),
+                      })
+                    }
+                  />
+                  {permission[0].toUpperCase() + permission.slice(1)}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label className="mt-4 flex gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={departmentUserForm.isActive}
+              onChange={(event) =>
+                setDepartmentUserForm({ ...departmentUserForm, isActive: event.target.checked })
+              }
+            />
+            Active
+          </label>
+          <button disabled={busy} className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground">
+            Save department user
+          </button>
+        </form>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <h2 className="font-display text-2xl">Department users</h2>
+          <div className="mt-4 space-y-3">
+            {departmentUsers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No department users yet.</p>
+            ) : departmentUsers.map((user) => (
+              <article key={user.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border p-4">
+                <div>
+                  <h3 className="font-semibold">{user.name}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {user.username} - {user.permissions.map((permission) => permission[0].toUpperCase() + permission.slice(1)).join(", ")}
+                    {user.isActive === false ? " - Inactive" : ""}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingDepartmentUserId(user.id);
+                      setDepartmentUserForm({
+                        name: user.name,
+                        username: user.username,
+                        password: "",
+                        permissions: user.permissions,
+                        isActive: user.isActive !== false,
+                      });
+                    }}
+                    className={actionButtonClass()}
+                  >
+                    <Edit3 className="h-4 w-4" /> Edit
+                  </button>
+                  <button onClick={() => deleteDepartmentUser(user.id)} className={actionButtonClass("danger")}>
+                    <Trash2 className="h-4 w-4" /> Delete
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   function renderPickupLocationsTab() {
     return (
       <section className="mt-8 grid gap-4 lg:grid-cols-[380px_1fr]">
@@ -3932,12 +4141,23 @@ export default function App() {
       icon: UserRound,
     },
     {
+      id: "department_users" as const,
+      label: "Department users",
+      count: departmentUsers.length,
+      icon: UserRound,
+    },
+    {
       id: "pickup_locations" as const,
       label: "Pickup locations",
       count: pickupLocations.length,
       icon: Store,
     },
-  ];
+  ].filter((tab) => {
+    if (role === "admin") return true;
+    if (tab.id === "products") return canAccess("products");
+    if (tab.id === "categories") return canAccess("categories");
+    return false;
+  });
 
   return (
     <main className="min-h-screen bg-background px-4 py-8 sm:px-6">
@@ -3994,6 +4214,7 @@ export default function App() {
         {activeTab === "locations" && renderLocationsTab()}
         {activeTab === "coupons" && renderCouponsTab()}
         {activeTab === "drivers" && renderDriversTab()}
+        {activeTab === "department_users" && renderDepartmentUsersTab()}
         {activeTab === "pickup_locations" && renderPickupLocationsTab()}
 
         {detailOrder && (

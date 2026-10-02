@@ -69,6 +69,15 @@ export type DeliveryLocation = {
 export type Coupon = { id: string; code: string; percentageOff: number; isActive?: boolean; updatedAt?: string };
 export type Driver = { id: string; name: string; username: string; contact: string; isActive?: boolean; updatedAt?: string };
 export type PickupLocation = { id: string; name: string; address: string; contact: string; username: string; isActive?: boolean; createdAt?: string; updatedAt?: string };
+export type DepartmentPermission = "products" | "categories";
+export type DepartmentUser = {
+  id: string;
+  name: string;
+  username: string;
+  permissions: DepartmentPermission[];
+  isActive?: boolean;
+  updatedAt?: string;
+};
 
 export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "completed" | "collected" | "cancelled";
 
