@@ -119,7 +119,14 @@ export function orderDiscount(order: AdminOrder) {
 export function orderTotal(order: AdminOrder) {
   const saved = Number(order.totals.total);
   if (Number.isFinite(saved)) return saved;
-  return Number((orderSubtotal(order) - orderDiscount(order) + orderDeliveryFee(order)).toFixed(2));
+  return Number(
+    (
+      orderSubtotal(order) -
+      orderDiscount(order) +
+      orderDeliveryFee(order) +
+      orderVat(order)
+    ).toFixed(2),
+  );
 }
 
 export function paymentMethodLabel(order: AdminOrder) {
@@ -369,11 +376,11 @@ function createOrderPdf(order: AdminOrder) {
   heading("Items");
   tableRow(
     ["S.no", "Item description", "Qty", "Unit", "Rate", "Amount"],
-    [36, contentWidth - 230, 40, 42, 60, 70],
+    [34, contentWidth - 242, 38, 42, 58, 70],
     true,
   );
   if (order.items.length === 0) {
-    tableRow(["1", "No items", "-", "-", formatMoney(0), formatMoney(0)], [36, contentWidth - 230, 40, 42, 60, 70]);
+    tableRow(["1", "No items", "-", "-", formatMoney(0), formatMoney(0)], [34, contentWidth - 242, 38, 42, 58, 70]);
   } else {
     order.items.forEach((item, index) => {
       tableRow(
@@ -385,7 +392,7 @@ function createOrderPdf(order: AdminOrder) {
           formatMoney(item.unitPrice),
           formatMoney(orderLineTotal(item)),
         ],
-        [36, contentWidth - 230, 40, 42, 60, 70],
+        [34, contentWidth - 242, 38, 42, 58, 70],
       );
     });
   }
