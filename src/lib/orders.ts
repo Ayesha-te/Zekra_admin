@@ -102,6 +102,15 @@ export function orderDeliveryFee(order: AdminOrder) {
   return Number.isFinite(saved) ? saved : 0;
 }
 
+export function orderVat(order: AdminOrder) {
+  const saved = Number(order.totals.vat);
+  if (Number.isFinite(saved)) return saved;
+  return Number(
+    Math.max(0, orderSubtotal(order) - orderDiscount(order) + orderDeliveryFee(order))
+      .toFixed(2),
+  ) * 0.05;
+}
+
 export function orderDiscount(order: AdminOrder) {
   const saved = Number(order.totals.discount ?? 0);
   return Number.isFinite(saved) ? saved : 0;
@@ -342,83 +351,66 @@ function createOrderPdf(order: AdminOrder) {
     y = bottomY;
   };
 
-  text(margin, y, "Zekra Sweets", 18, true);
-  text(margin, y - 19, `Order ${order.id}`, 13, true);
-  text(
-    margin,
-    y - 36,
-    `Status: ${orderStatusLabels[order.status] || order.status}`,
-    10,
-  );
-  text(pageWidth - margin - 170, y - 19, formatDateTime(order.createdAt), 10);
-  y -= 58;
+  text(margin, y, "ZEKRA SWEETS L.L.C.", 18, true);
+  text(margin, y - 19, "(SOLE PROPRIETORSHIP)", 10, true);
+  text(margin, y - 38, "TAX INVOICE", 14, true);
+  text(margin, y - 55, "TRN: 105025996700003", 10);
+  text(pageWidth - margin - 170, y - 19, `Invoice No: ${order.id}`, 9);
+  text(pageWidth - margin - 170, y - 36, `Date: ${formatDateTime(order.createdAt).split(",")[0]}`, 9);
+  y -= 72;
   line(margin, y, pageWidth - margin, y);
-  y -= 22;
+  y -= 20;
 
-  heading("Order summary");
-  tableRow(["Customer", order.customer.name || "-"], [120, contentWidth - 120]);
-  tableRow(["Phone", order.customer.phone || "-"], [120, contentWidth - 120]);
-  if (order.customer.email)
-    tableRow(["Email", order.customer.email], [120, contentWidth - 120]);
-  tableRow(["Fulfillment", fulfillmentLabel(order)], [120, contentWidth - 120]);
-  tableRow(
-    ["Address", order.fulfillment.address || "-"],
-    [120, contentWidth - 120],
-  );
-  tableRow(
-    ["Payment", `${paymentMethodLabel(order)} - ${paymentStatusLabel(order)}`],
-    [120, contentWidth - 120],
-  );
-  y -= 16;
-
-  if (order.notes) {
-    heading("Notes");
-    note(order.notes);
-  }
+  tableRow(["Customer name", order.customer.name || "-"], [120, contentWidth - 120]);
+  tableRow(["Address", order.fulfillment.address || "-"], [120, contentWidth - 120]);
+  tableRow(["Contact", [order.customer.phone, order.customer.email].filter(Boolean).join(" | ") || "-"], [120, contentWidth - 120]);
+  y -= 12;
 
   heading("Items");
   tableRow(
-    ["Item", "Qty", "Unit", "Line total"],
-    [contentWidth - 178, 40, 68, 70],
+    ["S.no", "Item description", "Qty", "Unit", "Rate", "Amount"],
+    [36, contentWidth - 230, 40, 42, 60, 70],
     true,
   );
   if (order.items.length === 0) {
-    tableRow(["No items", "-", "-", "-"], [contentWidth - 178, 40, 68, 70]);
+    tableRow(["1", "No items", "-", "-", formatMoney(0), formatMoney(0)], [36, contentWidth - 230, 40, 42, 60, 70]);
   } else {
-    order.items.forEach((item) => {
+    order.items.forEach((item, index) => {
       tableRow(
         [
+          String(index + 1),
           orderItemLabel(item),
           String(item.quantity),
+          "pcs",
           formatMoney(item.unitPrice),
           formatMoney(orderLineTotal(item)),
         ],
-        [contentWidth - 178, 40, 68, 70],
+        [36, contentWidth - 230, 40, 42, 60, 70],
       );
     });
   }
   y -= 16;
 
-  heading("Totals");
+  heading("Summary");
   tableRow(
-    ["Subtotal", formatMoney(orderSubtotal(order))],
+    ["Amount", formatMoney(orderSubtotal(order))],
+    [contentWidth - 120, 120],
+  );
+  tableRow(
+    ["VAT 5%", formatMoney(orderVat(order))],
     [contentWidth - 120, 120],
   );
   tableRow(
     ["Delivery", formatMoney(orderDeliveryFee(order))],
     [contentWidth - 120, 120],
   );
-  if (orderDiscount(order) > 0) {
-    tableRow(
-      [`Discount${order.coupon?.code ? ` (${order.coupon.code})` : ""}`, `-${formatMoney(orderDiscount(order))}`],
-      [contentWidth - 120, 120],
-    );
-  }
   tableRow(
     ["Total", formatMoney(orderTotal(order))],
     [contentWidth - 120, 120],
     true,
   );
+  y -= 16;
+  text(margin, y, "This is a system generated invoice and does not require signature.", 8);
 
   if (commands.length) pages.push(commands);
   return buildPdf(pages.map((page) => page.join("\n")));

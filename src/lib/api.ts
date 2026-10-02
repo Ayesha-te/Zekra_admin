@@ -126,6 +126,7 @@ export type AdminOrder = {
     subtotal?: number;
     delivery?: number;
     deliveryFee?: number;
+    vat?: number;
     total?: number;
     discount?: number;
   };
