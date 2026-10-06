@@ -1335,13 +1335,16 @@ export default function App() {
 
     try {
       const payload = new FormData();
-      Object.entries({ ...form, category: selectedProductCategory }).forEach(([key, value]) =>
-        payload.append(key, String(value)),
-      );
+      const isComboProduct = activeTab === "combos";
+      const comboProductIds = isComboProduct ? form.comboProductIds : [];
+      Object.entries({ ...form, category: selectedProductCategory }).forEach(([key, value]) => {
+        if (["comboProductIds", "comboSize", "isComboPack"].includes(key)) return;
+        payload.append(key, String(value));
+      });
       payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
-      payload.append("comboProductIds", JSON.stringify(form.comboProductIds));
-      payload.append("comboSize", activeTab === "combos" ? String(form.comboProductIds.length) : form.comboSize);
-      payload.append("isComboPack", String(activeTab === "combos"));
+      payload.append("comboProductIds", JSON.stringify(comboProductIds));
+      payload.append("comboSize", isComboProduct ? String(comboProductIds.length) : "");
+      payload.append("isComboPack", String(isComboProduct));
       payload.append("imageUrls", JSON.stringify(existingImageUrls));
       if (existingImageUrls[0]) payload.append("imageUrl", existingImageUrls[0]);
       images.forEach((file) => payload.append("images", file));
