@@ -2769,41 +2769,6 @@ export default function App() {
           )}
 
           <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
-            <h3 className="font-display text-xl">Order timeline</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Making time starts when the order is confirmed.
-            </p>
-            <div className="mt-4 grid gap-4">
-              <div>
-                <label className="block text-sm font-medium">Making time</label>
-                <div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.25"
-                    value={form.preparationTime}
-                    onChange={(e) =>
-                      setForm({ ...form, preparationTime: e.target.value })
-                    }
-                    className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary"
-                  />
-                  <select
-                    value={form.preparationTimeUnit}
-                    onChange={(e) =>
-                      setForm({ ...form, preparationTimeUnit: e.target.value })
-                    }
-                    className="h-12 rounded-xl border border-border bg-background px-3 text-sm"
-                  >
-                    <option value="minutes">Minutes</option>
-                    <option value="hours">Hours</option>
-                    <option value="days">Days</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-display text-xl">Size prices</h3>
