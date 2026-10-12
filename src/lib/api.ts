@@ -12,6 +12,7 @@ export type Product = {
   comboProductIds?: string[];
   comboSize?: number | null;
   preparationHours?: number;
+  makingInfo?: string;
   tag?: string;
   description?: string;
   urlSlug?: string;

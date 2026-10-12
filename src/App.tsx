@@ -2,6 +2,7 @@ import {
   CheckCircle2,
   BadgePercent,
   ClipboardList,
+  Clock,
   Download,
   Edit3,
   Eye,
@@ -101,6 +102,7 @@ type AdminTab =
   | "pickup_locations"
   | "coupons"
   | "drivers"
+  | "making_time"
   | "department_users";
 type OrderFilter = OrderStatus | "all";
 
@@ -298,6 +300,14 @@ export default function App() {
     DeliveryLocation[]
   >([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [makingForm, setMakingForm] = useState({
+    time: "1",
+    unit: "days",
+    info: "",
+    search: "",
+    selectedIds: [] as string[],
+  });
+  const [makingBusy, setMakingBusy] = useState(false);
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [productSizeForms, setProductSizeForms] = useState<ProductSizeForm[]>(
     [],
@@ -1369,6 +1379,38 @@ export default function App() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveMakingTime(event: FormEvent) {
+    event.preventDefault();
+    if (!makingForm.selectedIds.length) {
+      setMessage("Select at least one product for this making time.");
+      return;
+    }
+    setMakingBusy(true);
+    setMessage("");
+    try {
+      const result = await apiFetch<{ updated: number }>("/api/admin/making-time", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          productIds: makingForm.selectedIds,
+          preparationTime: makingForm.time,
+          preparationTimeUnit: makingForm.unit,
+          makingInfo: makingForm.info,
+        }),
+      });
+      setMakingForm((current) => ({ ...current, selectedIds: [] }));
+      setMessage(`Making time saved for ${result.updated} product${result.updated === 1 ? "" : "s"}.`);
+      await loadProducts();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save making time");
+    } finally {
+      setMakingBusy(false);
     }
   }
 
@@ -3341,6 +3383,171 @@ export default function App() {
     );
   }
 
+  function renderMakingTimeTab() {
+    const search = makingForm.search.trim().toLowerCase();
+    const visibleProducts = products.filter(
+      (product) => !search || product.name.toLowerCase().includes(search),
+    );
+    const allVisibleSelected =
+      visibleProducts.length > 0 &&
+      visibleProducts.every((product) => makingForm.selectedIds.includes(product.id));
+    const toggleProduct = (id: string) =>
+      setMakingForm((current) => ({
+        ...current,
+        selectedIds: current.selectedIds.includes(id)
+          ? current.selectedIds.filter((selectedId) => selectedId !== id)
+          : [...current.selectedIds, id],
+      }));
+    const toggleAllVisible = () =>
+      setMakingForm((current) => {
+        const visibleIds = visibleProducts.map((product) => product.id);
+        return {
+          ...current,
+          selectedIds: allVisibleSelected
+            ? current.selectedIds.filter((id) => !visibleIds.includes(id))
+            : [...new Set([...current.selectedIds, ...visibleIds])],
+        };
+      });
+    const groups = new Map<number, Product[]>();
+    products.forEach((product) => {
+      const hours = Number(product.preparationHours ?? 24) || 0;
+      groups.set(hours, [...(groups.get(hours) || []), product]);
+    });
+    const sortedGroups = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+
+    return (
+      <section className="mt-8 grid gap-4 lg:grid-cols-[420px_1fr]">
+        <form
+          onSubmit={saveMakingTime}
+          className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
+        >
+          <h2 className="font-display text-2xl">Set making time</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose a making time, tick the products it applies to, then save.
+            Customers see it with the expected delivery time.
+          </p>
+          <label className="mt-5 block text-sm font-medium">Making time</label>
+          <div className="mt-2 grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <input
+              required
+              type="number"
+              min="0"
+              step="0.25"
+              value={makingForm.time}
+              onChange={(e) => setMakingForm({ ...makingForm, time: e.target.value })}
+              className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary"
+            />
+            <select
+              value={makingForm.unit}
+              onChange={(e) => setMakingForm({ ...makingForm, unit: e.target.value })}
+              className="h-12 rounded-xl border border-border bg-background px-3 text-sm"
+            >
+              <option value="minutes">Minutes</option>
+              <option value="hours">Hours</option>
+              <option value="days">Days</option>
+            </select>
+          </div>
+          <label className="mt-4 block text-sm font-medium">
+            Extra info for customers (optional)
+          </label>
+          <textarea
+            maxLength={300}
+            rows={3}
+            value={makingForm.info}
+            onChange={(e) => setMakingForm({ ...makingForm, info: e.target.value })}
+            placeholder="Baked fresh to order. Please order a day ahead for gifts."
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Leave empty to clear any existing note on the selected products.
+          </p>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <label className="text-sm font-medium">
+              Products ({makingForm.selectedIds.length} selected)
+            </label>
+            <button
+              type="button"
+              onClick={toggleAllVisible}
+              className="text-sm font-semibold text-primary"
+            >
+              {allVisibleSelected ? "Clear shown" : "Select all shown"}
+            </button>
+          </div>
+          <input
+            value={makingForm.search}
+            onChange={(e) => setMakingForm({ ...makingForm, search: e.target.value })}
+            placeholder="Search products"
+            className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+          />
+          <div className="mt-2 max-h-72 space-y-1 overflow-y-auto rounded-xl border border-border bg-background/60 p-2">
+            {visibleProducts.length === 0 ? (
+              <p className="px-2 py-3 text-sm text-muted-foreground">No products found.</p>
+            ) : (
+              visibleProducts.map((product) => (
+                <label
+                  key={product.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-secondary"
+                >
+                  <input
+                    type="checkbox"
+                    checked={makingForm.selectedIds.includes(product.id)}
+                    onChange={() => toggleProduct(product.id)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{product.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {durationSummary(product.preparationHours)}
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          <button
+            disabled={makingBusy}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"
+          >
+            <Save className="h-4 w-4" />
+            {makingBusy ? "Saving..." : "Save making time"}
+          </button>
+        </form>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
+          <h2 className="font-display text-2xl">Current making times</h2>
+          <p className="text-sm text-muted-foreground">
+            Products grouped by their making time.
+          </p>
+          <div className="mt-4 space-y-4">
+            {sortedGroups.length === 0 && (
+              <p className="text-sm text-muted-foreground">No products yet.</p>
+            )}
+            {sortedGroups.map(([hours, groupProducts]) => (
+              <div key={hours} className="rounded-2xl border border-border bg-background/60 p-4">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Clock className="h-4 w-4 text-primary" />
+                  {durationSummary(hours)}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    ({groupProducts.length} product{groupProducts.length === 1 ? "" : "s"})
+                  </span>
+                </div>
+                <ul className="mt-3 space-y-1 text-sm">
+                  {groupProducts.map((product) => (
+                    <li key={product.id}>
+                      {product.name}
+                      {product.makingInfo && (
+                        <span className="block text-xs text-muted-foreground">
+                          Note: {product.makingInfo}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   function renderCouponsTab() {
     return (
       <section className="mt-8 grid gap-4 lg:grid-cols-[360px_1fr]">
@@ -4126,6 +4333,12 @@ export default function App() {
       icon: PackageCheck,
     },
     {
+      id: "making_time" as const,
+      label: "Making time",
+      count: products.length,
+      icon: Clock,
+    },
+    {
       id: "locations" as const,
       label: "Delivery",
       count: deliveryLocations.length,
@@ -4157,7 +4370,7 @@ export default function App() {
     },
   ].filter((tab) => {
     if (role === "admin") return true;
-    if (tab.id === "products") return canAccess("products");
+    if (tab.id === "products" || tab.id === "making_time") return canAccess("products");
     if (tab.id === "categories") return canAccess("categories");
     return false;
   });
@@ -4214,6 +4427,7 @@ export default function App() {
         {activeTab === "products" && renderProductsTab()}
         {activeTab === "categories" && renderCategoriesTab()}
         {activeTab === "combos" && renderComboTab()}
+        {activeTab === "making_time" && renderMakingTimeTab()}
         {activeTab === "locations" && renderLocationsTab()}
         {activeTab === "coupons" && renderCouponsTab()}
         {activeTab === "drivers" && renderDriversTab()}
