@@ -13,6 +13,8 @@ export type Product = {
   comboSize?: number | null;
   preparationHours?: number;
   makingInfo?: string;
+  preOrderDays?: number;
+  preOrderInfo?: string;
   tag?: string;
   description?: string;
   urlSlug?: string;

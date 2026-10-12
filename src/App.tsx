@@ -78,6 +78,8 @@ const emptyForm = {
   originalPrice: "",
   preparationTime: "1",
   preparationTimeUnit: "days",
+  preOrderDays: "",
+  preOrderInfo: "",
   tag: "",
   description: "",
   isActive: true,
@@ -189,6 +191,11 @@ function productPriceSummary(product: Product) {
         }`,
     )
     .join(" • ");
+}
+
+// Cakes are made to order, so any cake category gets the pre-order box.
+function isCakeCategory(...names: Array<string | undefined>) {
+  return names.some((name) => /cake/i.test(name || ""));
 }
 
 function durationFieldsFromHours(hours: number | null | undefined) {
@@ -1347,8 +1354,10 @@ export default function App() {
       const payload = new FormData();
       const isComboProduct = activeTab === "combos";
       const comboProductIds = isComboProduct ? form.comboProductIds : [];
+      const isCake = isCakeCategory(selectedProductCategory, form.mainCategory);
       Object.entries({ ...form, category: selectedProductCategory }).forEach(([key, value]) => {
         if (["comboProductIds", "comboSize", "isComboPack"].includes(key)) return;
+        if (!isCake && (key === "preOrderDays" || key === "preOrderInfo")) return payload.append(key, "");
         payload.append(key, String(value));
       });
       payload.append("sizes", JSON.stringify(sizePayload(productSizeForms)));
@@ -1450,6 +1459,8 @@ export default function App() {
       originalPrice: product.originalPrice ? String(product.originalPrice) : "",
       preparationTime: preparation.value,
       preparationTimeUnit: preparation.unit,
+      preOrderDays: product.preOrderDays ? String(product.preOrderDays) : "",
+      preOrderInfo: product.preOrderInfo || "",
       tag: product.tag || "",
       description: product.description || "",
       isActive: product.isActive !== false,
@@ -2723,6 +2734,39 @@ export default function App() {
               />
             </div>
           </div>
+
+          {isCakeCategory(selectedProductCategory, form.mainCategory) && (
+            <div className="mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+              <h3 className="font-display text-xl">Pre-order (made to order)</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Cakes are made on order. Customers see this on the cake and at checkout.
+              </p>
+              <label className="mt-4 block text-sm font-medium">
+                Customers must pre-order at least this many days before
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="60"
+                step="1"
+                value={form.preOrderDays}
+                onChange={(e) => setForm({ ...form, preOrderDays: e.target.value })}
+                placeholder="2"
+                className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-primary"
+              />
+              <label className="mt-4 block text-sm font-medium">
+                Additional information (optional)
+              </label>
+              <textarea
+                maxLength={300}
+                rows={3}
+                value={form.preOrderInfo}
+                onChange={(e) => setForm({ ...form, preOrderInfo: e.target.value })}
+                placeholder="Please order 2 days before. Custom messages and designs can be added."
+                className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+              />
+            </div>
+          )}
 
           <div className="mt-5 rounded-2xl border border-border bg-background/60 p-4">
             <h3 className="font-display text-xl">Order timeline</h3>
