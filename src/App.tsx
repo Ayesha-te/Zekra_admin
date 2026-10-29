@@ -384,8 +384,6 @@ export default function App() {
     if (role !== "department_user") return;
     if (canAccess("products")) {
       setActiveTab("products");
-    } else if (canAccess("categories")) {
-      setActiveTab("categories");
     }
   }, [role, permissions]);
 
@@ -408,7 +406,7 @@ export default function App() {
       loadDepartmentUsers(token);
     }
     if (canAccess("products")) loadProducts(token);
-    if (canAccess("categories")) loadCategories(token);
+    if (canAccess("categories") || canAccess("products")) loadCategories(token);
   }, [token, role, permissions]);
 
   const editingProduct = useMemo(
@@ -3850,7 +3848,7 @@ export default function App() {
                       })
                     }
                   />
-                  {permission[0].toUpperCase() + permission.slice(1)}
+                  Existing categories (view only)
                 </label>
               ))}
             </div>
@@ -4400,7 +4398,7 @@ export default function App() {
   ].filter((tab) => {
     if (role === "admin") return true;
     if (tab.id === "products" || tab.id === "making_time") return canAccess("products");
-    if (tab.id === "categories") return canAccess("categories");
+    if (tab.id === "categories") return role === "admin";
     return false;
   });
 
