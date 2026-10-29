@@ -128,8 +128,10 @@ const emptyDriverForm = {
 const emptyDepartmentUserForm = {
   name: "",
   username: "",
+  email: "",
   password: "",
   permissions: ["products"] as DepartmentPermission[],
+  isSeller: false,
   isActive: true,
 };
 const emptyPickupForm = {
@@ -3815,12 +3817,12 @@ export default function App() {
           <p className="mt-1 text-sm text-muted-foreground">
             Give a team member access to products, categories, or both.
           </p>
-          {(["name", "username", "password"] as const).map((field) => (
+          {(["name", "username", "email", "password"] as const).map((field) => (
             <label key={field} className="mt-4 block text-sm font-medium">
-              {field === "username" ? "Login username" : field[0].toUpperCase() + field.slice(1)}
+              {field === "username" ? "Login username" : field === "email" ? "Email (receives order emails)" : field[0].toUpperCase() + field.slice(1)}
               <input
-                required={field !== "password" || !editingDepartmentUserId}
-                type={field === "password" ? "password" : "text"}
+                required={field === "password" ? !editingDepartmentUserId : field === "email" ? departmentUserForm.isSeller : true}
+                type={field === "password" ? "password" : field === "email" ? "email" : "text"}
                 value={departmentUserForm[field]}
                 onChange={(event) =>
                   setDepartmentUserForm({ ...departmentUserForm, [field]: event.target.value })
@@ -3855,6 +3857,21 @@ export default function App() {
           <label className="mt-4 flex gap-2 text-sm">
             <input
               type="checkbox"
+              checked={departmentUserForm.isSeller}
+              onChange={(event) =>
+                setDepartmentUserForm({ ...departmentUserForm, isSeller: event.target.checked })
+              }
+            />
+            <span>
+              Seller / collaborator
+              <span className="block text-xs text-muted-foreground">
+                Starts with an empty product list, sees only products they upload, and gets order emails for their own products.
+              </span>
+            </span>
+          </label>
+          <label className="mt-4 flex gap-2 text-sm">
+            <input
+              type="checkbox"
               checked={departmentUserForm.isActive}
               onChange={(event) =>
                 setDepartmentUserForm({ ...departmentUserForm, isActive: event.target.checked })
@@ -3876,7 +3893,7 @@ export default function App() {
                 <div>
                   <h3 className="font-semibold">{user.name}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {user.username} - {user.permissions.map((permission) => permission[0].toUpperCase() + permission.slice(1)).join(", ")}
+                    {user.username}{user.isSeller ? ` (Seller${user.email ? `, ${user.email}` : ""})` : ""} - {user.permissions.map((permission) => permission[0].toUpperCase() + permission.slice(1)).join(", ")}
                     {user.isActive === false ? " - Inactive" : ""}
                   </p>
                 </div>
@@ -3887,8 +3904,10 @@ export default function App() {
                       setDepartmentUserForm({
                         name: user.name,
                         username: user.username,
+                        email: user.email || "",
                         password: "",
                         permissions: user.permissions,
+                        isSeller: user.isSeller === true,
                         isActive: user.isActive !== false,
                       });
                     }}

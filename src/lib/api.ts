@@ -77,6 +77,8 @@ export type DepartmentUser = {
   id: string;
   name: string;
   username: string;
+  email?: string;
+  isSeller?: boolean;
   permissions: DepartmentPermission[];
   isActive?: boolean;
   updatedAt?: string;
