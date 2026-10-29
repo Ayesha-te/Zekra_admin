@@ -130,7 +130,7 @@ const emptyDepartmentUserForm = {
   username: "",
   email: "",
   password: "",
-  permissions: ["products"] as DepartmentPermission[],
+  permissions: [] as DepartmentPermission[],
   isSeller: false,
   isActive: true,
 };
@@ -3817,10 +3817,11 @@ export default function App() {
           <p className="mt-1 text-sm text-muted-foreground">
             Give a team member access to products, categories, or both.
           </p>
-          {(["name", "username", "email", "password"] as const).map((field) => (
+          {(["username", "email", "password"] as const).map((field) => (
             <label key={field} className="mt-4 block text-sm font-medium">
               {field === "username" ? "Login username" : field === "email" ? "Email (receives order emails)" : field[0].toUpperCase() + field.slice(1)}
               <input
+                autoComplete={field === "password" ? "new-password" : "off"}
                 required={field === "password" ? !editingDepartmentUserId : field === "email" ? departmentUserForm.isSeller : true}
                 type={field === "password" ? "password" : field === "email" ? "email" : "text"}
                 value={departmentUserForm[field]}
@@ -3835,7 +3836,7 @@ export default function App() {
           <fieldset className="mt-5">
             <legend className="text-sm font-medium">Departments</legend>
             <div className="mt-2 space-y-2">
-              {(["products", "categories"] as const).map((permission) => (
+              {(["categories"] as const).map((permission) => (
                 <label key={permission} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
