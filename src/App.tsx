@@ -130,8 +130,8 @@ const emptyDepartmentUserForm = {
   username: "",
   email: "",
   password: "",
-  permissions: [] as DepartmentPermission[],
-  isSeller: false,
+  permissions: ["products", "categories"] as DepartmentPermission[],
+  isSeller: true,
   isActive: true,
 };
 const emptyPickupForm = {
@@ -382,9 +382,7 @@ export default function App() {
 
   useEffect(() => {
     if (role !== "department_user") return;
-    if (canAccess("products")) {
-      setActiveTab("products");
-    }
+    setActiveTab((current) => (current === "categories" ? current : "products"));
   }, [role, permissions]);
 
   useEffect(() => {
@@ -3082,7 +3080,7 @@ export default function App() {
                         {category.name}
                       </h3>
                     </div>
-                    <button
+                    {role === "admin" && <button
                       type="button"
                       onClick={() => deleteCategory(category.id)}
                       disabled={categoryBusyId === category.id}
@@ -3090,7 +3088,7 @@ export default function App() {
                       aria-label={`Delete ${category.name}`}
                     >
                       <Trash2 className="h-4 w-4" />
-                    </button>
+                    </button>}
                   </div>
                   <div className="mt-4 space-y-3">
                     <div className="flex flex-wrap gap-2">
@@ -3105,7 +3103,7 @@ export default function App() {
                             className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-primary"
                           >
                             {subcategory}
-                            <button
+                            {role === "admin" && <button
                               type="button"
                               onClick={() => removeSubcategory(category, subcategory)}
                               disabled={categoryBusyId === category.id}
@@ -3113,12 +3111,12 @@ export default function App() {
                               aria-label={`Remove ${subcategory}`}
                             >
                               <X className="h-3.5 w-3.5" />
-                            </button>
+                            </button>}
                           </span>
                         ))
                       )}
                     </div>
-                    <div className="flex gap-2">
+                    {role === "admin" && <div className="flex gap-2">
                       <input
                         value={subcategoryForms[category.id] || ""}
                         onChange={(event) =>
@@ -3139,7 +3137,7 @@ export default function App() {
                       >
                         <Plus className="h-4 w-4" />
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 </article>
               ))}
@@ -3810,17 +3808,17 @@ export default function App() {
           className="h-fit rounded-3xl border border-border bg-card p-5 shadow-glass"
         >
           <h2 className="font-display text-2xl">
-            {editingDepartmentUserId ? "Edit department user" : "Add department user"}
+            {editingDepartmentUserId ? "Edit seller / collaborator" : "Add seller / collaborator"}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Give a team member access to products, categories, or both.
+            The seller logs in to a dashboard where they can only add their own products and categories.
           </p>
           {(["username", "email", "password"] as const).map((field) => (
             <label key={field} className="mt-4 block text-sm font-medium">
               {field === "username" ? "Login username" : field === "email" ? "Email (receives order emails)" : field[0].toUpperCase() + field.slice(1)}
               <input
                 autoComplete={field === "password" ? "new-password" : "off"}
-                required={field === "password" ? !editingDepartmentUserId : field === "email" ? departmentUserForm.isSeller : true}
+                required={field === "password" ? !editingDepartmentUserId : true}
                 type={field === "password" ? "password" : field === "email" ? "email" : "text"}
                 value={departmentUserForm[field]}
                 onChange={(event) =>
@@ -3831,43 +3829,6 @@ export default function App() {
               />
             </label>
           ))}
-          <fieldset className="mt-5">
-            <legend className="text-sm font-medium">Departments</legend>
-            <div className="mt-2 space-y-2">
-              {(["categories"] as const).map((permission) => (
-                <label key={permission} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={departmentUserForm.permissions.includes(permission)}
-                    onChange={(event) =>
-                      setDepartmentUserForm({
-                        ...departmentUserForm,
-                        permissions: event.target.checked
-                          ? [...departmentUserForm.permissions, permission]
-                          : departmentUserForm.permissions.filter((item) => item !== permission),
-                      })
-                    }
-                  />
-                  Existing categories (view only)
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <label className="mt-4 flex gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={departmentUserForm.isSeller}
-              onChange={(event) =>
-                setDepartmentUserForm({ ...departmentUserForm, isSeller: event.target.checked })
-              }
-            />
-            <span>
-              Seller / collaborator
-              <span className="block text-xs text-muted-foreground">
-                Starts with an empty product list, sees only products they upload, and gets order emails for their own products.
-              </span>
-            </span>
-          </label>
           <label className="mt-4 flex gap-2 text-sm">
             <input
               type="checkbox"
@@ -3879,20 +3840,20 @@ export default function App() {
             Active
           </label>
           <button disabled={busy} className="mt-5 w-full rounded-full bg-gradient-gold px-5 py-3 font-semibold text-primary-foreground">
-            Save department user
+            Save seller
           </button>
         </form>
         <div className="rounded-3xl border border-border bg-card p-5 shadow-glass">
-          <h2 className="font-display text-2xl">Department users</h2>
+          <h2 className="font-display text-2xl">Sellers</h2>
           <div className="mt-4 space-y-3">
             {departmentUsers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No department users yet.</p>
+              <p className="text-sm text-muted-foreground">No sellers yet.</p>
             ) : departmentUsers.map((user) => (
               <article key={user.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border p-4">
                 <div>
                   <h3 className="font-semibold">{user.name}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {user.username}{user.isSeller ? ` (Seller${user.email ? `, ${user.email}` : ""})` : ""} - {user.permissions.map((permission) => permission[0].toUpperCase() + permission.slice(1)).join(", ")}
+                    {user.username}{user.email ? ` - ${user.email}` : ""}
                     {user.isActive === false ? " - Inactive" : ""}
                   </p>
                 </div>
@@ -4385,7 +4346,7 @@ export default function App() {
     },
     {
       id: "department_users" as const,
-      label: "Department users",
+      label: "Sellers",
       count: departmentUsers.length,
       icon: UserRound,
     },
@@ -4397,9 +4358,7 @@ export default function App() {
     },
   ].filter((tab) => {
     if (role === "admin") return true;
-    if (tab.id === "products" || tab.id === "making_time") return canAccess("products");
-    if (tab.id === "categories") return role === "admin";
-    return false;
+    return role === "department_user" && (tab.id === "products" || tab.id === "categories");
   });
 
   return (
@@ -4450,16 +4409,16 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === "orders" && renderOrdersTab()}
+        {activeTab === "orders" && role === "admin" && renderOrdersTab()}
         {activeTab === "products" && renderProductsTab()}
         {activeTab === "categories" && renderCategoriesTab()}
-        {activeTab === "combos" && renderComboTab()}
-        {activeTab === "making_time" && renderMakingTimeTab()}
-        {activeTab === "locations" && renderLocationsTab()}
-        {activeTab === "coupons" && renderCouponsTab()}
-        {activeTab === "drivers" && renderDriversTab()}
-        {activeTab === "department_users" && renderDepartmentUsersTab()}
-        {activeTab === "pickup_locations" && renderPickupLocationsTab()}
+        {activeTab === "combos" && role === "admin" && renderComboTab()}
+        {activeTab === "making_time" && role === "admin" && renderMakingTimeTab()}
+        {activeTab === "locations" && role === "admin" && renderLocationsTab()}
+        {activeTab === "coupons" && role === "admin" && renderCouponsTab()}
+        {activeTab === "drivers" && role === "admin" && renderDriversTab()}
+        {activeTab === "department_users" && role === "admin" && renderDepartmentUsersTab()}
+        {activeTab === "pickup_locations" && role === "admin" && renderPickupLocationsTab()}
 
         {detailOrder && (
           <div
