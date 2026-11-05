@@ -14,6 +14,7 @@ import {
   LogOut,
   MapPin,
   PackageCheck,
+  PackageX,
   Plus,
   RefreshCw,
   Save,
@@ -83,6 +84,7 @@ const emptyForm = {
   tag: "",
   description: "",
   isActive: true,
+  inStock: true,
   isComboPack: false,
   comboProductIds: [] as string[],
   comboSize: "3",
@@ -1462,6 +1464,7 @@ export default function App() {
       tag: product.tag || "",
       description: product.description || "",
       isActive: product.isActive !== false,
+      inStock: product.inStock !== false,
       isComboPack: product.isComboPack === true,
       comboProductIds: product.comboProductIds || [],
       comboSize: String(product.comboSize || product.comboProductIds?.length || 3),
@@ -2909,6 +2912,16 @@ export default function App() {
             Show this product on the website
           </label>
 
+          <label className="mt-3 flex items-center gap-3 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={!form.inStock}
+              onChange={(e) => setForm({ ...form, inStock: !e.target.checked })}
+              className="h-4 w-4 accent-destructive"
+            />
+            Mark as out of stock (stays visible, customers can't order it)
+          </label>
+
           <button
             disabled={busy}
             className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-gold px-5 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-60"
@@ -2976,6 +2989,11 @@ export default function App() {
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs text-primary">
                           <Eye className="h-3.5 w-3.5" /> Live
+                        </span>
+                      )}
+                      {product.inStock === false && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-destructive">
+                          <PackageX className="h-3.5 w-3.5" /> Out of stock
                         </span>
                       )}
                     </div>

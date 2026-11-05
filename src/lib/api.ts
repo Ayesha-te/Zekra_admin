@@ -31,6 +31,7 @@ export type Product = {
   robotsFollow?: boolean;
   redirectSlugs?: string[];
   isActive?: boolean;
+  inStock?: boolean;
   updatedAt?: string;
   category: "Cookies" | "Sweets" | "Rusk" | "Puff" | string;
   mainCategory?: string;
