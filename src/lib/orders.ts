@@ -369,22 +369,15 @@ function createOrderPdf(order: AdminOrder) {
   line(margin, y, pageWidth - margin, y);
   y -= 20;
 
-  const payMethod = String(order.payment?.method || "").toLowerCase();
-  const isPaid = String(order.payment?.status || "").toLowerCase() === "paid";
-  const payTotal = formatMoney(orderTotal(order));
-  const paymentTerms = isPaid
-    ? `PAID${payMethod === "stripe" ? " (Card - online)" : payMethod === "no_payment_required" ? " (No payment required)" : ""} - No amount due`
-    : payMethod === "cash_on_delivery"
-      ? `CASH ON DELIVERY - Collect ${payTotal} on delivery`
-      : payMethod === "cash_on_pickup"
-        ? `CASH ON PICKUP - Collect ${payTotal} on pickup`
-        : `PAYMENT DUE - Collect ${payTotal}`;
-  tableRow(["Payment terms", paymentTerms], [120, contentWidth - 120], true);
-  y -= 10;
 
   tableRow(["Customer name", order.customer.name || "-"], [120, contentWidth - 120]);
   tableRow(["Address", order.fulfillment.address || "-"], [120, contentWidth - 120]);
   tableRow(["Contact", [order.customer.phone, order.customer.email].filter(Boolean).join(" | ") || "-"], [120, contentWidth - 120]);
+  const payMethod = String(order.payment?.method || "").toLowerCase();
+  tableRow(
+    ["Payment method", payMethod === "cash_on_delivery" ? "Cash on delivery" : payMethod === "cash_on_pickup" ? "Cash on pickup" : "Stripe - Paid"],
+    [120, contentWidth - 120],
+  );
   y -= 12;
 
   heading("Items");
