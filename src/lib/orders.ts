@@ -362,11 +362,25 @@ function createOrderPdf(order: AdminOrder) {
   text(margin, y - 19, "(SOLE PROPRIETORSHIP)", 10, true);
   text(margin, y - 38, "TAX INVOICE", 14, true);
   text(margin, y - 55, "TRN: 105025996700003", 10);
-  text(pageWidth - margin - 170, y - 19, `Invoice No: ${order.id}`, 9);
+  text(pageWidth - margin - 170, y - 19, `Invoice No: ${order.invoiceNumber || order.id}`, 9);
   text(pageWidth - margin - 170, y - 36, `Date: ${formatDateTime(order.createdAt).split(",")[0]}`, 9);
+  text(pageWidth - margin - 170, y - 53, `Order No: ${order.id}`, 9);
   y -= 72;
   line(margin, y, pageWidth - margin, y);
   y -= 20;
+
+  const payMethod = String(order.payment?.method || "").toLowerCase();
+  const isPaid = String(order.payment?.status || "").toLowerCase() === "paid";
+  const payTotal = formatMoney(orderTotal(order));
+  const paymentTerms = isPaid
+    ? `PAID${payMethod === "stripe" ? " (Card - online)" : payMethod === "no_payment_required" ? " (No payment required)" : ""} - No amount due`
+    : payMethod === "cash_on_delivery"
+      ? `CASH ON DELIVERY - Collect ${payTotal} on delivery`
+      : payMethod === "cash_on_pickup"
+        ? `CASH ON PICKUP - Collect ${payTotal} on pickup`
+        : `PAYMENT DUE - Collect ${payTotal}`;
+  tableRow(["Payment terms", paymentTerms], [120, contentWidth - 120], true);
+  y -= 10;
 
   tableRow(["Customer name", order.customer.name || "-"], [120, contentWidth - 120]);
   tableRow(["Address", order.fulfillment.address || "-"], [120, contentWidth - 120]);
@@ -411,6 +425,12 @@ function createOrderPdf(order: AdminOrder) {
     ["Delivery", formatMoney(orderDeliveryFee(order))],
     [contentWidth - 120, 120],
   );
+  if (Number(order.totals.codCharge) > 0) {
+    tableRow(
+      ["COD charge", formatMoney(Number(order.totals.codCharge))],
+      [contentWidth - 120, 120],
+    );
+  }
   tableRow(
     ["Total", formatMoney(orderTotal(order))],
     [contentWidth - 120, 120],

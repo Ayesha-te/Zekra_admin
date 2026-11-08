@@ -89,6 +89,7 @@ export type OrderStatus = "new" | "confirmed" | "preparing" | "ready" | "out_for
 
 export type AdminOrder = {
   id: string;
+  invoiceNumber?: string;
   status: OrderStatus;
   customer: {
     name: string;
@@ -132,6 +133,7 @@ export type AdminOrder = {
     subtotal?: number;
     delivery?: number;
     deliveryFee?: number;
+    codCharge?: number;
     vat?: number;
     total?: number;
     discount?: number;
